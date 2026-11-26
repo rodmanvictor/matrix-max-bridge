@@ -26,7 +26,7 @@ class MaxBridge(Bridge):
     command = "python -m mautrix_max"
     description = "Неофициальный мост Matrix ↔ MAX через PyMax."
     repo_url = "https://github.com/rodmanvictor/matrix-max-bridge"
-    version = "0.14.0"
+    version = "0.14.1"
     config_class = Config
     matrix_class = MatrixHandler
     upgrade_table = upgrade_table

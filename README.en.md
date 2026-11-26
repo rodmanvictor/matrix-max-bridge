@@ -4,8 +4,8 @@
 
 <p align="center">
   <a href="https://github.com/rodmanvictor/matrix-max-bridge/actions/workflows/ci.yml"><img src="https://github.com/rodmanvictor/matrix-max-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.14.0-8F6BFF?style=flat" alt="Version 0.14.0"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0A9A74?style=flat" alt="MIT license"></a>
+  <a href="https://github.com/rodmanvictor/matrix-max-bridge/releases"><img src="https://img.shields.io/github/v/release/rodmanvictor/matrix-max-bridge?color=8F6BFF" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/rodmanvictor/matrix-max-bridge?color=0A9A74" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white" alt="Python 3.10, 3.11, 3.12">
   <a href="docs/installation-docker.md"><img src="https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose"></a>
 </p>
@@ -161,11 +161,10 @@ docker compose exec -e MAX_AUTH_MXID=@you:example.org \
 2. If two-factor protection is on, enter the password. It is not echoed.
 3. The bridge picks up the new session within 15 seconds. Check it with `!max ping` in the chat with `@maxbot:your-domain`.
 
+The tool never overwrites an active session. To log in again or switch accounts, send `!max logout` to the bot first.
+
 > [!TIP]
 > Your Matrix ID needs the `user` or `admin` level in `bridge.permissions`. `MAX_DATA_DIR` is the directory that contains `sessions/` from `bridge.max.session_dir`.
-
-> [!WARNING]
-> The tool never overwrites an existing session. After `!max logout` a directory with the device profile stays in `data/sessions/`: move it to a backup before logging in again.
 
 ## Bot commands
 
@@ -267,7 +266,7 @@ This project continues [pymatrix-max](https://github.com/NijazKa/pymatrix-max) b
 <details>
 <summary>How it differs from pymatrix-max 0.12.0</summary>
 
-| | pymatrix-max 0.12.0 | matrix-max-bridge 0.14.0 |
+| | pymatrix-max 0.12.0 | matrix-max-bridge 0.14 |
 |---|---|---|
 | MAX login | phone, code and password in a Matrix chat | QR code in a server terminal |
 | Archive and search | — | ✅ |

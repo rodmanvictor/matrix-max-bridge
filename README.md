@@ -4,8 +4,8 @@
 
 <p align="center">
   <a href="https://github.com/rodmanvictor/matrix-max-bridge/actions/workflows/ci.yml"><img src="https://github.com/rodmanvictor/matrix-max-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.14.0-8F6BFF?style=flat" alt="Версия 0.14.0"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0A9A74?style=flat" alt="Лицензия MIT"></a>
+  <a href="https://github.com/rodmanvictor/matrix-max-bridge/releases"><img src="https://img.shields.io/github/v/release/rodmanvictor/matrix-max-bridge?color=8F6BFF" alt="Последний релиз"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/rodmanvictor/matrix-max-bridge?color=0A9A74" alt="Лицензия MIT"></a>
   <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white" alt="Python 3.10, 3.11, 3.12">
   <a href="docs/installation-docker.md"><img src="https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose"></a>
 </p>
@@ -161,11 +161,10 @@ docker compose exec -e MAX_AUTH_MXID=@you:example.org \
 2. Если включена двухфакторная защита, введите пароль. Он не отображается на экране.
 3. Мост подхватит новую сессию в течение 15 секунд. Проверить можно командой `!max ping` в чате с `@maxbot:ваш-домен`.
 
+Действующую сессию инструмент не перезаписывает. Чтобы войти заново или сменить аккаунт, сначала отправьте боту `!max logout`.
+
 > [!TIP]
 > Ваш Matrix ID должен иметь уровень `user` или `admin` в `bridge.permissions`. `MAX_DATA_DIR` — каталог, в котором лежит `sessions/` из `bridge.max.session_dir`.
-
-> [!WARNING]
-> Инструмент не перезаписывает существующую сессию. После `!max logout` в `data/sessions/` остаётся каталог с профилем устройства: перед новым входом перенесите его в резервную копию.
 
 ## Команды бота
 
@@ -265,7 +264,7 @@ python tools/check_release.py
 <details>
 <summary>Чем отличается от pymatrix-max 0.12.0</summary>
 
-| | pymatrix-max 0.12.0 | matrix-max-bridge 0.14.0 |
+| | pymatrix-max 0.12.0 | matrix-max-bridge 0.14 |
 |---|---|---|
 | Вход в MAX | телефон, код и пароль в чате Matrix | QR-код в терминале сервера |
 | Архив и поиск | — | ✅ |

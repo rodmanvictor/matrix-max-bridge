@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 import qrcode
 from pymax import ExtraConfig, QrAuthFlow, WebClient
-from .qr_bootstrap import commit_session
+from .qr_bootstrap import commit_session, session_in_use
 
 os.umask(0o077)
 
@@ -39,7 +39,7 @@ async def run() -> None:
     name = quote(owner, safe='')
     final = base/'sessions'/name
     marker = base/'pending'/name
-    if final.exists() or marker.exists():
+    if session_in_use(final, marker):
         raise RuntimeError('Сессия уже существует; обратитесь к администратору')
     stage = Path(tempfile.mkdtemp(prefix='.max-qr-', dir=base))
     authenticated = False
