@@ -1,6 +1,6 @@
 [project]
 name = "matrix-max-bridge"
-version = "0.14.0"
+version = "0.14.1"
 description = "Неофициальный многопользовательский мост Matrix ↔ MAX на базе mautrix-python и PyMax."
 readme = "README.md"
 requires-python = ">=3.10"

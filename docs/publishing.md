@@ -3,7 +3,8 @@
 ## Подготовка
 
 1. Обновите номер версии в `pyproject.toml`, `mautrix_max/__init__.py`,
-   `mautrix_max/__main__.py`, `CITATION.cff` и в бейдже `README.md`.
+   `mautrix_max/__main__.py` и `CITATION.cff`. Бейдж в README берёт версию из
+   последнего релиза сам.
 2. Опишите изменения в `CHANGELOG.md`.
 3. Проверьте исходники:
 

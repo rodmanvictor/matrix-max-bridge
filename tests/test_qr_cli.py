@@ -25,8 +25,25 @@ class DataDirTests(unittest.IsolatedAsyncioTestCase):
         from urllib.parse import quote
         from mautrix_max import qr_cli
         with tempfile.TemporaryDirectory() as root:
-            (Path(root)/'sessions'/quote('@owner:example.org', safe='')).mkdir(parents=True)
+            active = Path(root)/'sessions'/quote('@owner:example.org', safe='')
+            active.mkdir(parents=True); (active/'session.db').write_bytes(b'fake')
             env = {'MAX_AUTH_MXID': '@owner:example.org', 'MAX_DATA_DIR': root}
             with patch.dict(os.environ, env), patch('mautrix_max.qr_cli.sys'):
                 with self.assertRaisesRegex(RuntimeError, 'Сессия уже существует'):
                     await qr_cli.run()
+
+    async def test_directory_left_by_logout_does_not_block_login(self):
+        import os, tempfile
+        from pathlib import Path
+        from urllib.parse import quote
+        from mautrix_max import qr_cli
+        with tempfile.TemporaryDirectory() as root:
+            final = Path(root)/'sessions'/quote('@owner:example.org', safe='')
+            final.mkdir(parents=True); (final/'device-profile.json').write_text('{}')
+            env = {'MAX_AUTH_MXID': '@owner:example.org', 'MAX_DATA_DIR': root}
+            class Stop(Exception): pass
+            with patch.dict(os.environ, env), patch('mautrix_max.qr_cli.sys'), \
+                    patch('mautrix_max.qr_cli.WebClient', side_effect=Stop):
+                with self.assertRaises(Stop):
+                    await qr_cli.run()
+            self.assertEqual([p.name for p in final.iterdir()], ['device-profile.json'])

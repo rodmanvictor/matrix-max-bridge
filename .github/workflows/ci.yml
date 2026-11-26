@@ -50,6 +50,9 @@ jobs:
           print(mautrix_max.__version__)
           PY
 
+      - name: Unit tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
       - name: Dependency check
         run: python -m pip check
 

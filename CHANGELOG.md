@@ -3,6 +3,22 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 а версии следуют Semantic Versioning.
 
+## [0.14.1] — 2026-11-26
+
+### Исправлено
+
+- после `!max logout` снова можно войти по QR-коду, даже если от прежнего входа
+  по телефону в каталоге сессии остался профиль устройства; профиль сохраняется.
+
+### Изменено
+
+- GitHub Actions: `actions/checkout` 7, `actions/setup-python` 7,
+  `docker/login-action` 4;
+- допускается `ruamel.yaml` 0.19, Docker-образ по-прежнему ставит версию из
+  `requirements.lock`;
+- бейджи версии и лицензии в README обновляются сами;
+- CI запускает unit-тесты на Python 3.10, 3.11 и 3.12.
+
 ## [0.14.0] — 2026-11-26
 
 Первый выпуск под именем matrix-max-bridge, продолжение pymatrix-max 0.12.0.
@@ -70,5 +86,6 @@
 - нет E2EE и double puppeting;
 - inline keyboard и часть служебных вложений пропускаются.
 
+[0.14.1]: https://github.com/rodmanvictor/matrix-max-bridge/releases/tag/v0.14.1
 [0.14.0]: https://github.com/rodmanvictor/matrix-max-bridge/releases/tag/v0.14.0
 [0.12.0]: https://github.com/NijazKa/pymatrix-max/releases/tag/v0.12.0
