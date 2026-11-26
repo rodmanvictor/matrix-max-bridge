@@ -1,11 +1,13 @@
-__version__ = "2.3.1"
+__version__ = "2.5.0"
 
 
+from .api.self import PrivacyAccess, PrivacySettingsUpdate
 from .auth import (
     AuthFlow,
     ConsolePasswordProvider,
     ConsoleQrHandler,
     ConsoleSmsCodeProvider,
+    PasswordAttemptsExceededError,
     PasswordProvider,
     QrAuthFlow,
     QrHandler,
@@ -17,7 +19,7 @@ from .client_web import WebClient
 from .config import ExtraConfig, RegistrationConfig
 from .dispatch import EventType, Router
 from .exceptions import ApiError, PyMaxError, UploadError
-from .files import File, Photo, Video
+from .files import File, Photo, Video, VideoNote, Voice
 from .logging import configure_logging
 from .routers import ClientRouter, WebRouter
 from .types import (
@@ -28,6 +30,8 @@ from .types import (
     PresenceEvent,
     Profile,
     ReactionUpdateEvent,
+    Story,
+    StoryPreview,
     TypingEvent,
     User,
 )
@@ -48,9 +52,12 @@ __all__ = (
     "Message",
     "MessageDeleteEvent",
     "MessageReadEvent",
+    "PasswordAttemptsExceededError",
     "PasswordProvider",
     "Photo",
     "PresenceEvent",
+    "PrivacyAccess",
+    "PrivacySettingsUpdate",
     "Profile",
     "PyMaxError",
     "QrAuthFlow",
@@ -60,12 +67,16 @@ __all__ = (
     "Router",
     "SmsAuthFlow",
     "SmsCodeProvider",
+    "Story",
+    "StoryPreview",
     "SyncOverrides",
     "SyncState",
     "TypingEvent",
     "UploadError",
     "User",
     "Video",
+    "VideoNote",
+    "Voice",
     "WebClient",
     "WebRouter",
     "__version__",

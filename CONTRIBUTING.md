@@ -1,6 +1,6 @@
 # Как помочь проекту
 
-Спасибо за интерес к `pymatrix-max`.
+Спасибо за интерес к `matrix-max-bridge`.
 
 ## Перед началом
 
@@ -23,6 +23,7 @@ python -m pip install --no-build-isolation -e .
 ```bash
 python -m compileall -q mautrix_max vendor/pymax/src/pymax
 python -m pip check
+python -m unittest discover -s tests -p 'test_*.py'
 python tools/check_release.py
 ```
 

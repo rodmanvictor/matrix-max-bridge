@@ -30,7 +30,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/nijazka/pymatrix-max
+          images: ghcr.io/rodmanvictor/matrix-max-bridge
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

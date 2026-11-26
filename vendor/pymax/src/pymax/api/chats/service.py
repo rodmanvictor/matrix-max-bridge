@@ -1,25 +1,32 @@
 from __future__ import annotations
 
 import time
+from functools import reduce
+from operator import or_
 from typing import TYPE_CHECKING
 
 from pymax.api.binding import bind_api_model
 from pymax.api.response import (
     parse_payload_item_model,
     parse_payload_list,
+    payload_item,
     require_payload_item_model,
     require_payload_model,
 )
 from pymax.exceptions import PyMaxError
+from pymax.files import Photo
 from pymax.logging import get_logger
 from pymax.protocol import Opcode
 from pymax.types.domain import Chat, Member, Message
 
-from .enums import ChatLinkPrefix, ChatMemberOperation, ChatPayloadKey
+from .enums import ChannelPermissions, ChatLinkPrefix, ChatMemberOperation, ChatPayloadKey
 from .payloads import (
+    AddAdminPayload,
+    BlockCommentAuthorPayload,
     ChangeGroupProfilePayload,
     ChangeGroupSettingsOptions,
     ChangeGroupSettingsPayload,
+    ChannelCommentsOptions,
     CreateGroupAttach,
     CreateGroupMessage,
     CreateGroupPayload,
@@ -27,6 +34,7 @@ from .payloads import (
     FetchChatsPayload,
     FetchJoinRequests,
     GetChatInfoPayload,
+    GetChatMembersPayload,
     InviteUsersPayload,
     JoinChatPayload,
     JoinRequestActionPayload,
@@ -34,6 +42,7 @@ from .payloads import (
     LinkInfoPayload,
     RemoveUsersPayload,
     ReworkInviteLinkPayload,
+    SetChannelCommentsPayload,
 )
 
 if TYPE_CHECKING:
@@ -206,12 +215,18 @@ class ChatService:
         chat_id: int,
         name: str | None,
         description: str | None = None,
+        photo: Photo | None = None,
     ) -> None:
+
         frame = ChangeGroupProfilePayload(
             chat_id=chat_id,
             theme=name,
             description=description,
         )
+
+        if photo:
+            photo_payload = await self.app.api.uploads.upload_photo(photo)
+            frame.photo_token = photo_payload.photo_token
 
         response = await self.app.invoke(Opcode.CHAT_UPDATE, frame.to_payload())
         chat = parse_payload_item_model(response, ChatPayloadKey.CHAT, Chat)
@@ -265,6 +280,22 @@ class ChatService:
                 cached[chat.id] = chat
 
         return [cached[chat_id] for chat_id in chat_ids if chat_id in cached]
+
+    async def get_chat_members(
+        self,
+        chat_id: int,
+        marker: int | None = None,
+        count: int = 50,
+    ) -> tuple[list[Member], int]:
+        frame = GetChatMembersPayload(chat_id=chat_id, marker=marker or 0, count=count)
+        response = await self.app.invoke(Opcode.CHAT_MEMBERS, frame.to_payload())
+
+        members = bind_api_model(
+            self.app,
+            parse_payload_list(response, ChatPayloadKey.MEMBERS, Member),
+        )
+        next_marker = payload_item(response, ChatPayloadKey.MARKER, int) or 0
+        return members, next_marker
 
     async def get_chat(self, chat_id: int) -> Chat:
         chats = await self.get_chats([chat_id])
@@ -380,3 +411,48 @@ class ChatService:
 
         await self.app.invoke(Opcode.CHAT_DELETE, frame.to_payload())
         self._remove_cached_chat(chat_id)
+
+    async def add_admin(
+        self,
+        chat_id: int,
+        user_id: int,
+        permissions: list[ChannelPermissions],
+    ) -> None:
+        frame = AddAdminPayload(
+            chat_id=chat_id,
+            user_ids=[user_id],
+            permissions=reduce(or_, permissions),
+        )
+
+        await self.app.invoke(Opcode.CHAT_MEMBERS_UPDATE, frame.to_payload())
+
+    async def set_channel_comments(self, chat_id: int, enabled: bool) -> None:
+        frame = SetChannelCommentsPayload(
+            chat_id=chat_id,
+            options=ChannelCommentsOptions(comments=enabled),
+        )
+        response = await self.app.invoke(Opcode.CHAT_UPDATE, frame.to_payload())
+        chat = parse_payload_item_model(response, ChatPayloadKey.CHAT, Chat)
+        if chat:
+            self._cache_chat(chat)
+
+    async def block_comment_author(
+        self,
+        chat_id: int,
+        post_id: int,
+        user_ids: list[int],
+        message_id: int,
+        clean_msg_period: int = 0,
+    ) -> bool:
+        frame = BlockCommentAuthorPayload(
+            chat_id=chat_id,
+            post_id=post_id,
+            user_ids=user_ids,
+            message_id=message_id,
+            clean_msg_period=clean_msg_period,
+        )
+        response = await self.app.invoke(Opcode.CHAT_MEMBERS_UPDATE, frame.to_payload())
+        chat = parse_payload_item_model(response, ChatPayloadKey.CHAT, Chat)
+        if chat:
+            self._cache_chat(chat)
+        return True

@@ -53,20 +53,13 @@ def _normalize_join_link(value: str) -> str | None:
     management_only=True,
     help_section=SECTION_AUTH,
     help_text="Начать вход в Max",
-    help_args="<телефон в формате +79991234567>",
+    help_args="",
 )
 async def login(evt: CommandEvent) -> None:
-    await evt.sender.remember_management_room(evt.room_id)
-    if len(evt.args) < 1:
-        await evt.reply("Использование: `login <телефон>`")
-        return
-    phone = evt.args[0]
     await evt.reply(
-        "Начинаю авторизацию в Max. Дальнейшие запросы (код из SMS, "
-        "при необходимости — пароль) придут отдельными сообщениями, "
-        "просто отвечайте на них следующим сообщением без каких-либо команд."
+        "Вход выполняется через защищённое QR-окно на сервере. "
+        "Не отправляйте коды и пароли в Matrix."
     )
-    await evt.sender.request_login_code(phone, evt.room_id)
 
 
 @command_handler(

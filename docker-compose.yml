@@ -1,7 +1,7 @@
 services:
   mautrix-max:
     build: .
-    image: pymatrix-max:local
+    image: matrix-max-bridge:local
     container_name: mautrix-max
     restart: unless-stopped
     environment:

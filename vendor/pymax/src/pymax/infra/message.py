@@ -1,8 +1,11 @@
+from pymax.api.messages import DateTimeUnion
 from pymax.api.messages.enums import ItemType
 from pymax.api.messages.service import SendAttachments
 from pymax.types import (
+    CommentsInfoUpdate,
     FileRequest,
     Message,
+    PollState,
     ReactionInfo,
     ReadState,
     VideoRequest,
@@ -17,23 +20,30 @@ class MessageMixin(IClientProtocol):
     async def send_message(
         self,
         chat_id: int,
-        text: str,
+        text: str | None = None,
         reply_to: int | None = None,
         attachments: SendAttachments = None,
         *,
         notify: bool = True,
-    ) -> Message | None:
+        send_at: DateTimeUnion | None = None,
+    ) -> Message:
         """Отправляет сообщение в чат.
 
         Args:
             chat_id: ID чата.
-            text: Текст сообщения.
+            text: Текст сообщения. Можно не передавать при наличии вложений.
             reply_to: ID сообщения для ответа.
-            attachments: Файлы, фотографии или видео для отправки.
+            attachments: Файлы, фотографии, видео или опросы для отправки.
             notify: Отправить ли получателям push-уведомление.
+            send_at: Время отложенной отправки: ``datetime`` для абсолютного
+                времени, ``timedelta`` для задержки или Unix time в секундах
+                как ``int``. ``None`` и ``0`` отправляют сообщение сразу.
 
         Returns:
-            Отправленное сообщение или ``None``, если сервер не вернул его.
+            Отправленное сообщение.
+
+        Raises:
+            ValueError: Если не переданы ни текст, ни вложения.
         """
         return await self._app.api.messages.send_message(
             chat_id,
@@ -41,6 +51,7 @@ class MessageMixin(IClientProtocol):
             reply_to,
             attachments,
             notify=notify,
+            send_at=send_at,
         )
 
     async def get_message(
@@ -69,7 +80,7 @@ class MessageMixin(IClientProtocol):
         source_chat_id: int | None = None,
         *,
         notify: bool = True,
-    ) -> Message | None:
+    ) -> Message:
         """Пересылает существующее сообщение в чат.
 
         Args:
@@ -80,7 +91,7 @@ class MessageMixin(IClientProtocol):
             notify: Отправить ли получателям push-уведомление.
 
         Returns:
-            Пересланное сообщение или ``None``, если сервер не вернул его.
+            Пересланное сообщение.
         """
         return await self._app.api.messages.forward_message(
             chat_id=chat_id,
@@ -112,7 +123,7 @@ class MessageMixin(IClientProtocol):
         self,
         chat_id: int,
         message_id: int,
-        text: str,
+        text: str | None = None,
         attachments: SendAttachments = None,
     ) -> Message:
         """Редактирует текст и вложения сообщения.
@@ -121,7 +132,7 @@ class MessageMixin(IClientProtocol):
             chat_id: ID чата.
             message_id: ID сообщения.
             text: Новый текст сообщения с поддержкой markdown.
-            attachments: Новые файлы, фотографии или видео для сообщения.
+            attachments: Новые файлы, фотографии, видео или опросы для сообщения.
 
         Returns:
             Отредактированное сообщение.
@@ -145,7 +156,7 @@ class MessageMixin(IClientProtocol):
         get_chat: bool = False,
         get_messages: bool = True,
         interactive: bool = False,
-    ) -> list[Message] | None:
+    ) -> list[Message]:
         """Загружает историю сообщений чата.
 
         Args:
@@ -162,7 +173,7 @@ class MessageMixin(IClientProtocol):
             interactive: Пометить запрос как интерактивный.
 
         Returns:
-            Сообщения или ``None``, если сервер не вернул список.
+            Список сообщений. Если сервер не вернул сообщения, список пуст.
         """
         return await self._app.api.messages.fetch_history(
             chat_id=chat_id,
@@ -326,15 +337,11 @@ class MessageMixin(IClientProtocol):
             message_id=message_id,
         )
 
-    async def read_message(self, message_id: int | str, chat_id: int) -> ReadState:
+    async def read_message(self, message_id: int, chat_id: int) -> ReadState:
         """Отмечает сообщение как прочитанное.
 
-        У Max различается wire-формат ``message_id`` для отметки прочтения:
-        TCP-клиент ожидает ``int``, WebSocket-клиент - ``str``.
-
         Args:
-            message_id: ID сообщения. Передавайте ``int`` для ``Client`` и
-                ``str`` для ``WebClient``.
+            message_id: ID сообщения как ``int`` для ``Client`` и ``WebClient``.
             chat_id: ID чата.
 
         Returns:
@@ -343,4 +350,221 @@ class MessageMixin(IClientProtocol):
         return await self._app.api.messages.read_message(
             message_id=message_id,
             chat_id=chat_id,
+        )
+
+    async def vote_poll(
+        self,
+        chat_id: int,
+        message_id: int,
+        poll_id: int,
+        answer_ids: list[int],
+    ) -> PollState:
+        """Отправляет выбранные ответы в опросе.
+
+        Args:
+            chat_id: ID чата с опросом.
+            message_id: ID сообщения с опросом.
+            poll_id: ID опроса из ``PollAttachment.poll_id``.
+            answer_ids: ID выбранных вариантов ответа.
+
+        Returns:
+            Обновленное состояние опроса.
+        """
+        return await self._app.api.messages.vote_poll(
+            chat_id=chat_id,
+            message_id=message_id,
+            poll_id=poll_id,
+            answer_ids=answer_ids,
+        )
+
+    async def send_comment(
+        self,
+        chat_id: int,
+        post_id: int,
+        text: str | None = None,
+        reply_to: int | None = None,
+        attachments: SendAttachments = None,
+        *,
+        notify: bool = True,
+    ) -> Message:
+        """Отправляет комментарий к посту канала.
+
+        Args:
+            chat_id: ID канала.
+            post_id: ID поста в канале.
+            text: Текст комментария с поддержкой Markdown.
+            reply_to: ID комментария, на который нужно ответить.
+            attachments: Вложения комментария.
+            notify: Отправить уведомление о комментарии.
+
+        Returns:
+            Опубликованный комментарий как ``Message``.
+        """
+        return await self._app.api.messages.send_comment(
+            chat_id=chat_id,
+            post_id=post_id,
+            text=text,
+            reply_to=reply_to,
+            attachments=attachments,
+            notify=notify,
+        )
+
+    async def fetch_comments(
+        self,
+        chat_id: int,
+        post_id: int,
+        from_: int | None = None,
+        backward: int = 30,
+        get_messages: bool = True,
+        forward: int = 0,
+    ) -> list[Message]:
+        """Возвращает страницу комментариев поста канала.
+
+        ``chat_id`` задает канал, ``post_id`` — пост внутри него.
+        ``backward`` и ``forward`` задают количество комментариев по сторонам
+        от ``from_``. При ``from_=None`` используется начальная позиция Max.
+        """
+        return await self._app.api.messages.fetch_comments(
+            chat_id=chat_id,
+            post_id=post_id,
+            from_=from_,
+            backward=backward,
+            get_messages=get_messages,
+            forward=forward,
+        )
+
+    async def get_comments(
+        self,
+        chat_id: int,
+        post_id: int,
+        message_ids: list[int],
+    ) -> list[Message]:
+        """Возвращает конкретные комментарии поста по их ID.
+
+        ``chat_id`` задает канал, ``post_id`` — пост, а ``message_ids`` —
+        ID запрашиваемых комментариев.
+        """
+        return await self._app.api.messages.get_comments(
+            chat_id=chat_id,
+            post_id=post_id,
+            message_ids=message_ids,
+        )
+
+    async def get_comment(
+        self,
+        chat_id: int,
+        post_id: int,
+        message_id: int,
+    ) -> Message | None:
+        """Возвращает комментарий по ID или ``None``, если он не найден."""
+        return await self._app.api.messages.get_comment(
+            chat_id=chat_id,
+            post_id=post_id,
+            message_id=message_id,
+        )
+
+    async def edit_comment(
+        self,
+        chat_id: int,
+        post_id: int,
+        message_id: int,
+        text: str | None = None,
+        attachments: SendAttachments = None,
+    ) -> Message:
+        """Редактирует текст и вложения комментария. Текст поддерживает markdown."""
+        return await self._app.api.messages.edit_comment(
+            chat_id=chat_id,
+            post_id=post_id,
+            message_id=message_id,
+            text=text,
+            attachments=attachments,
+        )
+
+    async def delete_comment(
+        self,
+        chat_id: int,
+        post_id: int,
+        message_ids: list[int],
+        for_me: bool = False,
+    ) -> bool:
+        """Удаляет комментарии поста. По умолчанию удаляет для всех."""
+        return await self._app.api.messages.delete_comment(
+            chat_id=chat_id,
+            post_id=post_id,
+            message_ids=message_ids,
+            for_me=for_me,
+        )
+
+    async def add_comment_reaction(
+        self,
+        chat_id: int,
+        post_id: int,
+        message_id: int,
+        reaction: str,
+    ) -> ReactionInfo | None:
+        """Добавляет или заменяет свою emoji-реакцию на комментарии."""
+        return await self._app.api.messages.add_comment_reaction(
+            chat_id=chat_id,
+            post_id=post_id,
+            message_id=message_id,
+            reaction=reaction,
+        )
+
+    async def remove_comment_reaction(
+        self,
+        chat_id: int,
+        post_id: int,
+        message_id: int,
+    ) -> ReactionInfo | None:
+        """Удаляет свою реакцию с комментария."""
+        return await self._app.api.messages.remove_comment_reaction(
+            chat_id=chat_id,
+            post_id=post_id,
+            message_id=message_id,
+        )
+
+    async def subscribe_comments(
+        self,
+        chat_id: int,
+        post_id: int,
+        subscribe: bool = True,
+    ) -> None:
+        """Подписывается на события ветки комментариев.
+
+        Для поддержания подписки повторяйте вызов раз в минуту.
+        ``subscribe=False`` отменяет подписку.
+        """
+        return await self._app.api.messages.subscribe_comments(
+            chat_id=chat_id,
+            post_id=post_id,
+            subscribe=subscribe,
+        )
+
+    async def get_comments_info(
+        self,
+        chat_id: int,
+        post_ids: list[int],
+    ) -> list[CommentsInfoUpdate]:
+        """Возвращает список обновлений счетчиков комментариев постов."""
+        return await self._app.api.messages.get_comments_info(
+            chat_id=chat_id,
+            post_ids=post_ids,
+        )
+
+    async def delete_user_comments(
+        self,
+        chat_id: int,
+        post_id: int,
+        user_id: int,
+        message_id: int,
+    ) -> bool:
+        """Удаляет комментарии автора в ветке указанного поста.
+
+        ``message_id`` — ID комментария этого автора.
+        """
+        return await self._app.api.messages.delete_user_comments(
+            chat_id=chat_id,
+            post_id=post_id,
+            user_id=user_id,
+            message_id=message_id,
         )

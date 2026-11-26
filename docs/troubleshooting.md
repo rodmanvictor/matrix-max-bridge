@@ -17,8 +17,9 @@
 
 ## `FAIL_LOGIN_TOKEN`
 
-MAX отозвал сохранённый token. Мост уведомит management-комнату. Выполните новый
-`!max login`. Диагностический лог содержит только SHA-256 fingerprint token, но не
+MAX отозвал сохранённый token. Мост уведомит management-комнату. Выполните
+`!max logout`, перенесите каталог сессии из `data/sessions/` в резервную копию и
+войдите заново по QR-коду. Диагностический лог содержит только SHA-256 fingerprint token, но не
 сам token.
 
 ## `chat.exit.not.active.user`

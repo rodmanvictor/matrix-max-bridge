@@ -17,13 +17,17 @@ class Portal:
     is_direct: bool
     remote_user_id: str | None = None
 
+    @staticmethod
+    def _receiver_key(receiver: UserID | None) -> str:
+        return str(receiver) if receiver else ""
+
     @classmethod
     async def get_by_chat_id(cls, chat_id: str, receiver: UserID | None) -> "Portal | None":
         row = await cls.db.fetchrow(
             "SELECT chat_id, receiver, mxid, name, is_direct, remote_user_id "
-            "FROM portal WHERE chat_id=$1 AND receiver IS NOT DISTINCT FROM $2",
+            "FROM portal WHERE chat_id=$1 AND receiver=$2",
             chat_id,
-            receiver,
+            cls._receiver_key(receiver),
         )
         return cls._from_row(row) if row else None
 
@@ -41,7 +45,7 @@ class Portal:
         return cls(
             db=cls.db,
             chat_id=row["chat_id"],
-            receiver=row["receiver"],
+            receiver=UserID(row["receiver"]) if row["receiver"] else None,
             mxid=row["mxid"],
             name=row["name"],
             is_direct=bool(row["is_direct"]),
@@ -54,7 +58,7 @@ class Portal:
             "(chat_id, receiver, mxid, name, is_direct, remote_user_id) "
             "VALUES ($1, $2, $3, $4, $5, $6)",
             self.chat_id,
-            self.receiver,
+            self._receiver_key(self.receiver),
             self.mxid,
             self.name,
             self.is_direct,
@@ -64,9 +68,9 @@ class Portal:
     async def save(self) -> None:
         await self.db.execute(
             "UPDATE portal SET mxid=$3, name=$4, is_direct=$5, remote_user_id=$6 "
-            "WHERE chat_id=$1 AND receiver IS NOT DISTINCT FROM $2",
+            "WHERE chat_id=$1 AND receiver=$2",
             self.chat_id,
-            self.receiver,
+            self._receiver_key(self.receiver),
             self.mxid,
             self.name,
             self.is_direct,
@@ -75,7 +79,7 @@ class Portal:
 
     async def delete(self) -> None:
         await self.db.execute(
-            "DELETE FROM portal WHERE chat_id=$1 AND receiver IS NOT DISTINCT FROM $2",
+            "DELETE FROM portal WHERE chat_id=$1 AND receiver=$2",
             self.chat_id,
-            self.receiver,
+            self._receiver_key(self.receiver),
         )

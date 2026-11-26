@@ -1,16 +1,24 @@
 # Сторонние компоненты
 
+## pymatrix-max
+
+matrix-max-bridge продолжает pymatrix-max. Код моста до коммита `9aca964`
+(версия 0.12.0) написан NijazKa, дальнейшие изменения описаны в `CHANGELOG.md`.
+
+- исходный проект: https://github.com/NijazKa/pymatrix-max
+- авторское право: Copyright (c) 2026 NijazKa
+- лицензия: MIT, строка авторского права сохранена в `LICENSE`
+
 ## PyMax
 
-Каталог `vendor/pymax` содержит PyMax (`maxapi-python`) версии 2.3.1.
+Каталог `vendor/pymax` содержит PyMax (`maxapi-python`) версии 2.5.0 (исходный коммит c4cb917d354a1179be625925530d72c8aaa969ff).
 
 - исходный проект: https://github.com/MaxApiTeam/PyMax
 - авторское право: Copyright (c) 2025 ink-developer
 - лицензия: MIT, полный текст в `vendor/pymax/LICENSE`
 
-Vendored-копия включается в wheel `pymatrix-max` и содержит совместимые с мостом изменения:
+Vendored-копия включается в wheel `matrix-max-bridge` и содержит совместимые с мостом изменения:
 
-- числовой `messageId` в API реакций;
 - обработку дополнительных типов входящих reaction frame;
 - разбор нескольких форматов MAX video CDN payload;
 - поддержку URL MPEG-DASH, который мост затем remux-ит через FFmpeg.

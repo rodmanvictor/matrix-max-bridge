@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Annotated, Any, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias
 
 from pydantic import Field, PrivateAttr, model_validator
 
-from pymax.files import File, Photo, Video
+from pymax.files import File, Photo, Video, VideoNote, Voice
 from pymax.types.domain import (
     AudioAttachment,
     CallAttachment,
@@ -14,6 +14,8 @@ from pymax.types.domain import (
     FileAttachment,
     InlineKeyboardAttachment,
     PhotoAttachment,
+    Poll,
+    PollAttachment,
     ShareAttachment,
     StickerAttachment,
     UnknownAttachment,
@@ -22,10 +24,10 @@ from pymax.types.domain import (
 
 from .base import CamelModel
 from .element import Element
-from .enums import MessageStatus
+from .enums import AccessType, LinkType, MessageStatus
 
 if TYPE_CHECKING:
-    from pymax.api.messages.service import MessageService
+    from pymax.api.messages import DateTimeUnion, MessageService
 
 
 KnownAttachment: TypeAlias = Annotated[
@@ -38,12 +40,19 @@ KnownAttachment: TypeAlias = Annotated[
     | ControlAttachment
     | InlineKeyboardAttachment
     | ShareAttachment
-    | CallAttachment,
+    | CallAttachment
+    | PollAttachment,
     Field(discriminator="type"),
 ]
 Attachment: TypeAlias = KnownAttachment | UnknownAttachment
-SendAttachment: TypeAlias = Photo | File | Video
+SendAttachment: TypeAlias = Photo | File | Video | Poll | Voice | VideoNote
 SendAttachments: TypeAlias = Sequence[SendAttachment] | None
+Link: TypeAlias = Annotated["ReplyLink | ForwardLink", Field(discriminator="type")]
+
+
+class MessageLink(CamelModel):
+    message: Message
+    chat_id: int
 
 
 class ReactionCounter(CamelModel):
@@ -88,6 +97,48 @@ class ReadState(CamelModel):
     mark: int
 
 
+class DelayedAttributes(CamelModel):
+    time_to_fire: int
+    notify_sender: bool
+    notify_opponents: bool
+
+
+class ReplyLink(MessageLink):
+    """Источник сообщения, отправленного как reply.
+
+    :ivar message: Сообщение, на которое ответили.
+    :vartype message: Message
+    :ivar chat_id: ID чата исходного сообщения.
+    :vartype chat_id: int
+    """
+
+    type: Literal[LinkType.REPLY] = LinkType.REPLY
+    message: Message
+    chat_id: int
+
+
+class ForwardLink(MessageLink):
+    """Источник пересланного сообщения.
+
+    Помимо исходного сообщения содержит доступные в payload-е имя, ссылку,
+    тип доступа и иконку исходного чата. Для скрытого источника эти метаданные
+    могут быть ``None``.
+
+    :ivar message: Исходное сообщение.
+    :vartype message: Message
+    :ivar chat_id: ID исходного чата.
+    :vartype chat_id: int
+    """
+
+    type: Literal[LinkType.FORWARD] = LinkType.FORWARD
+    message: Message
+    chat_id: int
+    chat_name: str | None = None
+    chat_link: str | None = None
+    chat_access_type: AccessType | None = None
+    chat_icon_url: str | None = None
+
+
 class Message(CamelModel):
     """Сообщение Max с методами для действий над ним.
 
@@ -117,6 +168,8 @@ class Message(CamelModel):
     :vartype id: int
     :ivar chat_id: ID чата, если он есть в данных сообщения.
     :vartype chat_id: int | None
+    :ivar post_id: ID поста канала, если сообщение является комментарием.
+    :vartype post_id: int | None
     :ivar sender: ID отправителя.
     :vartype sender: int | None
     :ivar text: Текст сообщения.
@@ -127,7 +180,8 @@ class Message(CamelModel):
     :vartype type: str
     :ivar cid: Клиентский ID сообщения, если он есть в payload-е.
     :vartype cid: int | None
-    :ivar attaches: Вложения сообщения.
+    :ivar attaches: Вложения сообщения. Неизвестный ``_type`` представлен как
+        ``UnknownAttachment`` с сохраненными дополнительными полями.
     :vartype attaches: list[Attachment]
     :ivar stats: Дополнительная статистика сообщения от Max.
     :vartype stats: dict[str, Any] | None
@@ -137,8 +191,6 @@ class Message(CamelModel):
     :vartype reaction_info: ReactionInfo | None
     :ivar options: Дополнительные параметры сообщения от Max.
     :vartype options: int | dict[str, Any] | None
-    :ivar link: Метаданные ответа или пересылки сообщения.
-    :vartype link: dict[str, Any] | None
     :ivar prev_message_id: ID предыдущего сообщения.
     :vartype prev_message_id: int | str | None
     :ivar ttl: Признак сообщения с ограниченным временем жизни.
@@ -149,10 +201,17 @@ class Message(CamelModel):
     :vartype mark: int | None
     :ivar elements: Форматированные элементы текста сообщения.
     :vartype elements: list[Element]
+    :ivar delayed_attributes: Время срабатывания в миллисекундах и настройки
+        уведомлений для отложенного сообщения; ``None`` для обычного.
+    :vartype delayed_attributes: DelayedAttributes | None
+    :ivar link: Исходное сообщение и чат для reply или forward; ``None`` для
+        обычного сообщения без связи.
+    :vartype link: ReplyLink | ForwardLink | None
     """
 
     id: int
     chat_id: int | None = None
+    post_id: int | None = None
     sender: int | None = None
     text: str = ""
     time: int
@@ -163,14 +222,13 @@ class Message(CamelModel):
     status: MessageStatus | None = None
     reaction_info: ReactionInfo | None = None
     options: int | dict[str, Any] | None = None
-    # MAX sends reply metadata as {"type": "REPLY", "messageId": ...}.
-    # Keep it flexible because other link types may contain extra fields.
-    link: dict[str, Any] | None = None
     prev_message_id: int | str | None = None
     ttl: bool | None = None
     unread: int | None = None
     mark: int | None = None
     elements: list[Element] = Field(default_factory=list)
+    delayed_attributes: DelayedAttributes | None = None
+    link: Link | None = None
 
     _actions: MessageService | None = PrivateAttr(default=None)
 
@@ -187,26 +245,49 @@ class Message(CamelModel):
 
     async def reply(
         self,
-        text: str,
+        text: str | None = None,
         attachments: SendAttachments = None,
         *,
         notify: bool = True,
-    ) -> Message | None:
-        """Отправляет ответ на это сообщение в тот же чат.
+        send_at: DateTimeUnion | None = None,
+    ) -> Message:
+        """Отправляет ответ в тот же чат или ветку комментариев.
 
         :param text: Текст сообщения.
-        :type text: str
+        :type text: str | None
         :param attachments: Файлы, фотографии или видео для отправки.
         :type attachments: SendAttachments
         :param notify: Отправить ли получателям push-уведомление.
         :type notify: bool
-        :returns: Отправленное сообщение или ``None``, если сервер не вернул
-            его.
-        :rtype: Message | None
+        :param send_at: Абсолютный ``datetime``, относительный ``timedelta``
+            или Unix time в секундах. ``None`` и ``0`` отправляют сразу.
+        :type send_at: DateTimeUnion | None
+        :returns: Отправленное сообщение.
+        :rtype: Message
         :raises RuntimeError: Если сообщение не привязано к сервису или не
             содержит ``chat_id``.
+        :raises ValueError: Если для комментария задана отложенная отправка.
         """
         actions, chat_id = self._bound()
+
+        if self.post_id is not None:
+            if send_at:
+                raise ValueError("Scheduled comments are not supported")
+
+            message = await actions.send_comment(
+                chat_id=chat_id,
+                post_id=self.post_id,
+                text=text,
+                reply_to=self.id,
+                attachments=attachments,
+                notify=notify,
+            )
+            if message.chat_id is None:
+                message.chat_id = chat_id
+            if message.post_id is None:
+                message.post_id = self.post_id
+
+            return message
 
         return await actions.send_message(
             chat_id=chat_id,
@@ -214,33 +295,57 @@ class Message(CamelModel):
             reply_to=self.id,
             attachments=attachments,
             notify=notify,
+            send_at=send_at,
         )
 
     async def answer(
         self,
-        text: str,
+        text: str | None = None,
         reply_to: int | None = None,
         attachments: SendAttachments = None,
         *,
         notify: bool = True,
-    ) -> Message | None:
-        """Отправляет сообщение в тот же чат.
+        send_at: DateTimeUnion | None = None,
+    ) -> Message:
+        """Отправляет сообщение в тот же чат или ветку комментариев.
 
         :param text: Текст сообщения.
-        :type text: str
+        :type text: str | None
         :param reply_to: ID сообщения для ответа.
         :type reply_to: int | None
         :param attachments: Файлы, фотографии или видео для отправки.
         :type attachments: SendAttachments
         :param notify: Отправить ли получателям push-уведомление.
         :type notify: bool
-        :returns: Отправленное сообщение или ``None``, если сервер не вернул
-            его.
-        :rtype: Message | None
+        :param send_at: Абсолютный ``datetime``, относительный ``timedelta``
+            или Unix time в секундах. ``None`` и ``0`` отправляют сразу.
+        :type send_at: DateTimeUnion | None
+        :returns: Отправленное сообщение.
+        :rtype: Message
         :raises RuntimeError: Если сообщение не привязано к сервису или не
             содержит ``chat_id``.
+        :raises ValueError: Если для комментария задана отложенная отправка.
         """
         actions, chat_id = self._bound()
+
+        if self.post_id is not None:
+            if send_at:
+                raise ValueError("Scheduled comments are not supported")
+
+            message = await actions.send_comment(
+                chat_id=chat_id,
+                post_id=self.post_id,
+                text=text,
+                reply_to=reply_to,
+                attachments=attachments,
+                notify=notify,
+            )
+            if message.chat_id is None:
+                message.chat_id = chat_id
+            if message.post_id is None:
+                message.post_id = self.post_id
+
+            return message
 
         return await actions.send_message(
             chat_id=chat_id,
@@ -248,6 +353,7 @@ class Message(CamelModel):
             reply_to=reply_to,
             attachments=attachments,
             notify=notify,
+            send_at=send_at,
         )
 
     async def forward(
@@ -255,15 +361,15 @@ class Message(CamelModel):
         chat_id: int,
         *,
         notify: bool = True,
-    ) -> Message | None:
+    ) -> Message:
         """Пересылает это сообщение в другой чат.
 
         :param chat_id: ID целевого чата.
         :type chat_id: int
         :param notify: Отправить ли получателям push-уведомление.
         :type notify: bool
-        :returns: Пересланное сообщение или ``None``, если сервер его не вернул.
-        :rtype: Message | None
+        :returns: Пересланное сообщение.
+        :rtype: Message
         :raises RuntimeError: Если сообщение не привязано к сервису или не
             содержит ``chat_id``.
         """
@@ -296,13 +402,13 @@ class Message(CamelModel):
 
     async def edit(
         self,
-        text: str,
+        text: str | None = None,
         attachments: SendAttachments = None,
     ) -> Message:
         """Редактирует текст и вложения этого сообщения.
 
         :param text: Новый текст сообщения с поддержкой markdown.
-        :type text: str
+        :type text: str | None
         :param attachments: Новые файлы, фотографии или видео для сообщения.
         :type attachments: SendAttachments
         :returns: Отредактированное сообщение.
@@ -311,6 +417,21 @@ class Message(CamelModel):
             содержит ``chat_id``.
         """
         actions, chat_id = self._bound()
+
+        if self.post_id is not None:
+            message = await actions.edit_comment(
+                chat_id=chat_id,
+                post_id=self.post_id,
+                message_id=self.id,
+                text=text,
+                attachments=attachments,
+            )
+            if message.chat_id is None:
+                message.chat_id = chat_id
+            if message.post_id is None:
+                message.post_id = self.post_id
+
+            return message
 
         return await actions.edit_message(
             chat_id=chat_id,
@@ -330,6 +451,14 @@ class Message(CamelModel):
             содержит ``chat_id``.
         """
         actions, chat_id = self._bound()
+
+        if self.post_id is not None:
+            return await actions.delete_comment(
+                chat_id=chat_id,
+                post_id=self.post_id,
+                message_ids=[self.id],
+                for_me=for_me,
+            )
 
         return await actions.delete_message(
             chat_id=chat_id,
@@ -364,9 +493,17 @@ class Message(CamelModel):
         """
         actions, chat_id = self._bound()
 
+        if self.post_id is not None:
+            return await actions.add_comment_reaction(
+                chat_id=chat_id,
+                post_id=self.post_id,
+                message_id=self.id,
+                reaction=reaction,
+            )
+
         return await actions.add_reaction(
             chat_id=chat_id,
-            message_id=str(self.id),  # :C
+            message_id=self.id,
             reaction=reaction,
         )
 
@@ -380,9 +517,16 @@ class Message(CamelModel):
         """
         actions, chat_id = self._bound()
 
+        if self.post_id is not None:
+            return await actions.remove_comment_reaction(
+                chat_id=chat_id,
+                post_id=self.post_id,
+                message_id=self.id,
+            )
+
         return await actions.remove_reaction(
             chat_id=chat_id,
-            message_id=str(self.id),  # :C x2
+            message_id=self.id,
         )
 
     async def get_reactions(self) -> dict[str, ReactionInfo] | None:
@@ -398,7 +542,7 @@ class Message(CamelModel):
 
         return await actions.get_reactions(
             chat_id=chat_id,
-            message_ids=[str(self.id)],  # :C x3
+            message_ids=[self.id],
         )
 
     def _bound(self) -> tuple[MessageService, int]:
@@ -431,6 +575,7 @@ class Message(CamelModel):
         return {
             **message,
             "chatId": value.get("chatId"),
+            "postId": value.get("postId"),
             "prevMessageId": value.get("prevMessageId"),
             "ttl": value.get("ttl"),
             "unread": value.get("unread"),

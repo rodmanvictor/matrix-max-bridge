@@ -20,7 +20,10 @@ import aiohttp
 from pymax import (
     Chat,
     Client,
+    WebClient,
+    QrAuthFlow,
     ExtraConfig,
+    SyncOverrides,
     File,
     Message,
     Photo,
@@ -246,6 +249,19 @@ class DownloadedMaxMedia:
         return len(self.data)
 
 
+WEB_SESSION_MARKER = "__web_qr__"
+
+
+class RejectInteractiveAuth:
+    """A running bridge must never print a fresh QR or request secrets in Matrix."""
+
+    async def show_qr(self, _url: str) -> None:
+        raise RuntimeError("MAX web session requires secure manual authorization")
+
+    async def get_password(self, _hint: str | None = None) -> str:
+        raise RuntimeError("MAX web session requires secure manual authorization")
+
+
 class MaxClientWrapper:
     """Обёртка над одним long-running клиентом PyMax."""
 
@@ -268,44 +284,38 @@ class MaxClientWrapper:
         self.device_type = device_type
         self.app_version = app_version
 
-        (
-            user_agent,
-            device_id,
-            mt_instance_id,
-            self.device_profile_path,
-            profile_created,
-        ) = _load_or_create_device_profile(phone, work_dir)
-        self.device_profile_id = hashlib.sha256(
-            device_id.encode("utf-8")
-        ).hexdigest()[:12]
-        self.device_profile_name = user_agent.device_name
-
-        log.info(
-            "Стабильный профиль MAX-устройства: phone=%s profile_id=%s "
-            "device_name=%s os=%s app_version=%s created=%s path=%s",
-            self.phone,
-            self.device_profile_id,
-            user_agent.device_name,
-            user_agent.os_version,
-            user_agent.app_version,
-            profile_created,
-            self.device_profile_path,
-        )
-
-        client_kwargs = {
-            "extra_config": ExtraConfig(
-                log_level="DEBUG",
-                device_id=device_id,
-                mt_instance_id=mt_instance_id,
-                user_agent=user_agent,
+        if phone == WEB_SESSION_MARKER:
+            # WEB credentials are provisioned out-of-band. Never prompt in a Matrix room.
+            self.device_profile_path = Path(work_dir) / "session.db"
+            self.device_profile_id = "web"
+            self.device_profile_name = "MAX Web"
+            reject = RejectInteractiveAuth()
+            self.client = WebClient(
+                work_dir=work_dir,
+                extra_config=ExtraConfig(log_level="WARNING", telemetry=False, reconnect=True, relogin=False, sync=SyncOverrides(chats_sync=-1, contacts_sync=-1)),
+                auth_flow=QrAuthFlow(qr_provider=reject, password_provider=reject),
             )
-        }
-        if sms_code_provider is not None:
-            client_kwargs["sms_code_provider"] = sms_code_provider
-        if password_provider is not None:
-            client_kwargs["password_provider"] = password_provider
-
-        self.client = Client(phone=phone, work_dir=work_dir, **client_kwargs)
+        else:
+            (
+                user_agent,
+                device_id,
+                mt_instance_id,
+                self.device_profile_path,
+                profile_created,
+            ) = _load_or_create_device_profile(phone, work_dir)
+            self.device_profile_id = hashlib.sha256(device_id.encode("utf-8")).hexdigest()[:12]
+            self.device_profile_name = user_agent.device_name
+            client_kwargs = {
+                "extra_config": ExtraConfig(
+                    log_level="WARNING", telemetry=False, relogin=False,
+                    device_id=device_id, mt_instance_id=mt_instance_id, user_agent=user_agent,
+                )
+            }
+            if sms_code_provider is not None:
+                client_kwargs["sms_code_provider"] = sms_code_provider
+            if password_provider is not None:
+                client_kwargs["password_provider"] = password_provider
+            self.client = Client(phone=phone, work_dir=work_dir, **client_kwargs)
 
         self._on_message_cb = on_message
         self._on_ready_cb = on_ready
@@ -327,59 +337,8 @@ class MaxClientWrapper:
         self.client.on_disconnect()(self._handle_disconnect)
 
     def _session_diagnostics(self) -> tuple[str, str, bool, int]:
-        """Read non-secret diagnostics from PyMax session.db.
-
-        The token itself is never logged. Only the first 12 hex characters of
-        its SHA-256 digest are returned, which is enough to correlate token
-        rotation or invalidation between lifecycle log records.
-        """
-        session_db = Path(self.work_dir) / "session.db"
-        runtime_device = getattr(
-            getattr(getattr(self.client, "_config", None), "device", None),
-            "device_id",
-            None,
-        )
-        if not session_db.is_file():
-            return "none", str(runtime_device or "unknown"), False, 0
-
-        try:
-            with sqlite3.connect(str(session_db), timeout=1.0) as db:
-                table = db.execute(
-                    "SELECT 1 FROM sqlite_master "
-                    "WHERE type='table' AND name='sessions'"
-                ).fetchone()
-                if table is None:
-                    return "none", str(runtime_device or "unknown"), False, 0
-
-                columns = {
-                    row[1] for row in db.execute("PRAGMA table_info(sessions)").fetchall()
-                }
-                selected = ["token", "device_id"]
-                if "mt_instance_id" in columns:
-                    selected.append("mt_instance_id")
-                row = db.execute(
-                    f"SELECT {', '.join(selected)} FROM sessions LIMIT 1"
-                ).fetchone()
-                count_row = db.execute("SELECT COUNT(*) FROM sessions").fetchone()
-                row_count = int(count_row[0]) if count_row else 0
-        except (OSError, sqlite3.Error) as exc:
-            log.debug(
-                "Не удалось прочитать диагностику PyMax-сессии %s: %s",
-                session_db,
-                exc,
-            )
-            return "unreadable", str(runtime_device or "unknown"), False, -1
-
-        if row is None:
-            return "none", str(runtime_device or "unknown"), False, row_count
-
-        token = str(row[0] or "")
-        token_fingerprint = (
-            hashlib.sha256(token.encode("utf-8")).hexdigest()[:12] if token else "none"
-        )
-        device_id = str(row[1] or runtime_device or "unknown")
-        mt_instance_id_set = bool(row[2]) if len(row) > 2 else False
-        return token_fingerprint, device_id, mt_instance_id_set, row_count
+        # Do not read, fingerprint, or log session credentials or device IDs.
+        return "redacted", "redacted", False, 0
 
     async def _handle_disconnect(
         self,
@@ -509,10 +468,9 @@ class MaxClientWrapper:
             return
 
         log.info(
-            "Получен raw MAX reaction frame: opcode=%s cmd=%s payload=%s",
+            "Получен raw MAX reaction frame: opcode=%s cmd=%s",
             frame.opcode,
             frame.cmd,
-            frame.payload,
         )
 
     async def start(self, *, reason: str = "unspecified") -> None:
@@ -966,18 +924,8 @@ class MaxClientWrapper:
             fallback_mime,
         )
 
-        parsed_url = urlparse(url)
-        log.info(
-            "MAX media downloaded: host=%s path=%s size=%d "
-            "declared_mime=%s detected_mime=%s selected_mime=%s signature=%s",
-            parsed_url.hostname or "unknown",
-            parsed_url.path or "/",
-            len(data),
-            declared_mime or "none",
-            detected_mime or "unknown",
-            mime_type,
-            data[:16].hex(),
-        )
+        # Do not log file contents, signed download paths, or attachment tokens.
+        log.info("MAX media downloaded: size=%d type=%s", len(data), mime_type)
 
         if mime_type in {
             "application/vnd.apple.mpegurl",

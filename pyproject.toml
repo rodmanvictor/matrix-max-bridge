@@ -1,11 +1,11 @@
 [project]
-name = "pymatrix-max"
-version = "0.12.0"
+name = "matrix-max-bridge"
+version = "0.14.0"
 description = "Неофициальный многопользовательский мост Matrix ↔ MAX на базе mautrix-python и PyMax."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
-authors = [{ name = "NijazKa" }]
+authors = [{ name = "rodmanvictor" }, { name = "NijazKa" }]
 keywords = ["matrix", "max", "bridge", "mautrix", "messenger"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -40,13 +40,13 @@ dependencies = [
 ]
 
 [project.scripts]
-pymatrix-max = "mautrix_max.__main__:main"
+matrix-max-bridge = "mautrix_max.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/NijazKa/pymatrix-max"
-Repository = "https://github.com/NijazKa/pymatrix-max"
-Issues = "https://github.com/NijazKa/pymatrix-max/issues"
-Changelog = "https://github.com/NijazKa/pymatrix-max/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/rodmanvictor/matrix-max-bridge"
+Repository = "https://github.com/rodmanvictor/matrix-max-bridge"
+Issues = "https://github.com/rodmanvictor/matrix-max-bridge/issues"
+Changelog = "https://github.com/rodmanvictor/matrix-max-bridge/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -58,4 +58,4 @@ include = ["mautrix_max*", "pymax*"]
 
 [tool.setuptools.package-data]
 mautrix_max = ["example-config.yaml", "licenses/*"]
-pymax = ["py.typed"]
+pymax = ["py.typed", "_data/*"]

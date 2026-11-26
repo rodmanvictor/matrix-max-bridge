@@ -12,16 +12,16 @@ sudo apt install -y \
 ## Установка
 
 ```bash
-sudo useradd --system --create-home --home-dir /opt/pymatrix-max pymatrix-max
-sudo -u pymatrix-max git clone https://github.com/NijazKa/pymatrix-max.git /opt/pymatrix-max/app
-cd /opt/pymatrix-max/app
+sudo useradd --system --create-home --home-dir /opt/matrix-max-bridge matrix-max-bridge
+sudo -u matrix-max-bridge git clone https://github.com/rodmanvictor/matrix-max-bridge.git /opt/matrix-max-bridge/app
+cd /opt/matrix-max-bridge/app
 
-sudo -u pymatrix-max python3 -m venv .venv
-sudo -u pymatrix-max .venv/bin/python -m pip install --upgrade pip setuptools wheel
-sudo -u pymatrix-max .venv/bin/python -m pip install --no-build-isolation .
+sudo -u matrix-max-bridge python3 -m venv .venv
+sudo -u matrix-max-bridge .venv/bin/python -m pip install --upgrade pip setuptools wheel
+sudo -u matrix-max-bridge .venv/bin/python -m pip install --no-build-isolation .
 
-sudo -u pymatrix-max mkdir -p data
-sudo -u pymatrix-max cp example-config.yaml data/config.yaml
+sudo -u matrix-max-bridge mkdir -p data
+sudo -u matrix-max-bridge cp example-config.yaml data/config.yaml
 ```
 
 Для systemd обычно используются:
@@ -37,7 +37,7 @@ appservice:
 Сгенерируйте регистрацию:
 
 ```bash
-sudo -u pymatrix-max .venv/bin/python -m mautrix_max \
+sudo -u matrix-max-bridge .venv/bin/python -m mautrix_max \
   -g -c data/config.yaml -r data/registration.yaml
 ```
 
@@ -45,26 +45,26 @@ sudo -u pymatrix-max .venv/bin/python -m mautrix_max \
 
 ## Unit-файл
 
-`/etc/systemd/system/pymatrix-max.service`:
+`/etc/systemd/system/matrix-max-bridge.service`:
 
 ```ini
 [Unit]
-Description=pymatrix-max Matrix ↔ MAX bridge
+Description=matrix-max-bridge Matrix ↔ MAX bridge
 After=network-online.target matrix-synapse.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=pymatrix-max
-Group=pymatrix-max
-WorkingDirectory=/opt/pymatrix-max/app
-ExecStart=/opt/pymatrix-max/app/.venv/bin/python -m mautrix_max -c data/config.yaml -r data/registration.yaml
+User=matrix-max-bridge
+Group=matrix-max-bridge
+WorkingDirectory=/opt/matrix-max-bridge/app
+ExecStart=/opt/matrix-max-bridge/app/.venv/bin/python -m mautrix_max -c data/config.yaml -r data/registration.yaml
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/pymatrix-max/app/data
+ReadWritePaths=/opt/matrix-max-bridge/app/data
 
 [Install]
 WantedBy=multi-user.target
@@ -74,7 +74,22 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now pymatrix-max
-sudo systemctl status pymatrix-max
-sudo journalctl -u pymatrix-max -f
+sudo systemctl enable --now matrix-max-bridge
+sudo systemctl status matrix-max-bridge
+sudo journalctl -u matrix-max-bridge -f
 ```
+
+## Вход в MAX
+
+Вход выполняется по QR-коду в интерактивном терминале. Matrix ID должен иметь
+уровень `user` или `admin` в `bridge.permissions`:
+
+```bash
+cd /opt/matrix-max-bridge/app
+sudo -u matrix-max-bridge env MAX_AUTH_MXID=@you:example.org \
+  MAX_DATA_DIR=/opt/matrix-max-bridge/app/data \
+  .venv/bin/python -m mautrix_max.qr_cli
+```
+
+Мост подхватит сессию в течение 15 секунд. Подробнее — в
+[installation-docker.md](installation-docker.md#8-первая-авторизация).

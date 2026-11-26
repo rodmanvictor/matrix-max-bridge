@@ -9,7 +9,7 @@ Element / Matrix client
       Synapse
         │ Application Service transactions
         ▼
-   pymatrix-max
+   matrix-max-bridge
         │ one PyMax client per Matrix user
         ▼
        MAX

@@ -1,4 +1,6 @@
 import asyncio
+import ssl
+from importlib import resources
 
 from python_socks.async_.asyncio import Proxy
 
@@ -7,6 +9,7 @@ from pymax.logging import get_logger
 from .base import Transport
 
 logger = get_logger(__name__)
+_CLOSE_TIMEOUT = 5.0
 
 
 class TCPTransport(Transport):
@@ -15,6 +18,10 @@ class TCPTransport(Transport):
         self._port = port
         self._proxy = proxy
         self._use_ssl = use_ssl
+        self._ssl_ctx = ssl.create_default_context()
+        self._ssl_ctx.load_verify_locations(
+            str(resources.files("pymax._data") / "rootca_ssl_rsa2022.crt")
+        )
         self._reader = None
         self._writer = None
 
@@ -25,6 +32,9 @@ class TCPTransport(Transport):
             self._port,
             self._use_ssl,
         )
+        ssl_ctx = self._ssl_ctx if self._use_ssl else None
+        server_hostname = self._host if self._use_ssl else None
+
         if self._proxy:
             logger.debug("tcp connecting via proxy %s", self._proxy)
             proxy = Proxy.from_url(self._proxy)
@@ -32,10 +42,9 @@ class TCPTransport(Transport):
                 dest_host=self._host,
                 dest_port=self._port,
             )
-            server_hostname = self._host if self._use_ssl else None
             self._reader, self._writer = await asyncio.open_connection(
                 sock=sock,
-                ssl=self._use_ssl,
+                ssl=ssl_ctx,
                 server_hostname=server_hostname,
             )
             logger.info(
@@ -49,7 +58,7 @@ class TCPTransport(Transport):
             self._reader, self._writer = await asyncio.open_connection(
                 self._host,
                 self._port,
-                ssl=self._use_ssl,
+                ssl=ssl_ctx,
             )
         logger.info(
             "tcp connected host=%s port=%s ssl=%s",
@@ -66,7 +75,11 @@ class TCPTransport(Transport):
         if writer:
             logger.debug("tcp close")
             writer.close()
-            await writer.wait_closed()
+            try:
+                await asyncio.wait_for(writer.wait_closed(), _CLOSE_TIMEOUT)
+            except (OSError, TimeoutError) as e:
+                logger.warning("tcp close did not finish cleanly: %s", e)
+                writer.transport.abort()
             logger.debug("tcp closed")
 
     async def send(self, data: bytes | str) -> None:

@@ -502,6 +502,13 @@ class User(BaseUser):
             await self._db_row.save()
 
         try:
+            archive = getattr(self.bridge, "archive", None)
+            if archive and self.max_client:
+                await archive.save_directory(self.mxid, self.max_client.client)
+        except Exception as exc:
+            log.error("MAX directory archive failed: %s", type(exc).__name__)
+
+        try:
             await self.sync_group_portals(refresh=False)
         except Exception:
             log.exception(
@@ -535,25 +542,10 @@ class User(BaseUser):
         token_invalid = "FAIL_LOGIN_TOKEN" in error_text
 
         if token_invalid:
-            # The server has explicitly rejected this token. Keep the management
-            # room, but remove unusable auth state so restarts don't loop forever.
-            self._clear_max_session_data()
-            self.max_phone = None
-            if self._db_row is not None:
-                self._db_row.max_phone = None
-                self._db_row.max_session_file = None
-                await self._db_row.save()
-
+            # Preserve the session and DB record for diagnosis and safe recovery.
             notice = (
-                f"Сессия MAX для {phone or 'аккаунта'} завершена сервером: "
-                "токен входа больше недействителен (`FAIL_LOGIN_TOKEN`). "
-                "Выполните повторный вход командой "
-                f"`login {phone}` в этой комнате."
-                if phone
-                else
-                "Сессия MAX завершена сервером: токен входа больше "
-                "недействителен (`FAIL_LOGIN_TOKEN`). Выполните повторный "
-                "вход командой `login <телефон>` в этой комнате."
+                "Сервер MAX отклонил сессию. Для повторного входа используйте "
+                "защищённое QR-окно; не отправляйте коды или пароли в чат."
             )
 
             if self.management_room:
@@ -867,6 +859,19 @@ class User(BaseUser):
 
     # --- Входящие сообщения из MAX ---
 
+    async def archive_message(self, message, chat_id_override=None) -> bool:
+        chat_id = chat_id_override if chat_id_override is not None else getattr(message, "chat_id", None)
+        archive = getattr(self.bridge, "archive", None)
+        if chat_id is None or message is None or archive is None:
+            return False
+        try:
+            await archive.save_message(self.mxid, chat_id, message)
+            return True
+        except Exception as exc:
+            # Never log private message text, filenames, or provider error payloads.
+            log.error("MAX archive write failed: %s", type(exc).__name__)
+            return False
+
     async def handle_max_message(self, message) -> None:
         from .portal import Portal
 
@@ -880,6 +885,8 @@ class User(BaseUser):
             event_kind="message",
         ):
             return
+
+        await self.archive_message(message)
 
         try:
             chat_info = await self.max_client.get_chat_info(int(chat_id))

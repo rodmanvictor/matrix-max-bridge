@@ -1,3 +1,5 @@
+from pymax.api.chats import ChannelPermissions
+from pymax.files import Photo
 from pymax.types import Chat, Member, Message
 
 from .protocol import IClientProtocol
@@ -130,20 +132,23 @@ class ChatMixin(IClientProtocol):
     async def change_group_profile(
         self,
         chat_id: int,
-        name: str | None,
+        name: str | None = None,
         description: str | None = None,
+        photo: Photo | None = None,
     ) -> None:
-        """Обновляет название и описание группы.
+        """Обновляет название, описание или фотографию группы.
+
+        ``None`` исключает соответствующее поле из запроса. Фотография
+        автоматически загружается перед обновлением профиля.
 
         Args:
             chat_id: ID группы.
             name: Новое название.
             description: Новое описание.
+            photo: Новая фотография группы.
         """
         await self._app.api.chats.change_group_profile(
-            chat_id=chat_id,
-            name=name,
-            description=description,
+            chat_id=chat_id, name=name, description=description, photo=photo
         )
 
     async def join_group(self, link: str) -> Chat:
@@ -210,6 +215,28 @@ class ChatMixin(IClientProtocol):
             PyMaxError: Если сервер не вернул чат.
         """
         return await self._app.api.chats.get_chat(chat_id)
+
+    async def get_chat_members(
+        self,
+        chat_id: int,
+        marker: int | None = None,
+        count: int = 50,
+    ) -> tuple[list[Member], int]:
+        """Возвращает страницу участников чата по ID.
+
+        Args:
+            chat_id: ID чата.
+            marker: Маркер страницы. Если ``None``, запрашивается первая
+                страница.
+            count: Максимальное количество участников в ответе.
+
+        Returns:
+            ``(members, next_marker)``. Если участников больше, чем
+            уместилось в ответ, ``next_marker`` ненулевой — передайте его в
+            следующий вызов, чтобы получить следующую страницу. ``0``
+            означает, что дальше страниц нет.
+        """
+        return await self._app.api.chats.get_chat_members(chat_id, marker, count)
 
     async def leave_group(self, chat_id: int) -> None:
         """Выходит из группы.
@@ -372,3 +399,46 @@ class ChatMixin(IClientProtocol):
             Канал, в который вступил клиент.
         """
         return await self._app.api.chats.join_channel(link=link)
+
+    async def add_admin(
+        self,
+        chat_id: int,
+        user_id: int,
+        permissions: list[ChannelPermissions],
+    ) -> None:
+        """Назначает пользователя администратором канала.
+
+        Args:
+            chat_id: ID канала.
+            user_id: ID пользователя.
+            permissions: Непустой список прав администратора.
+        """
+        return await self._app.api.chats.add_admin(chat_id, user_id, permissions)
+
+    async def set_channel_comments(self, chat_id: int, enabled: bool) -> None:
+        """Включает или выключает комментарии канала."""
+        return await self._app.api.chats.set_channel_comments(
+            chat_id=chat_id,
+            enabled=enabled,
+        )
+
+    async def block_comment_author(
+        self,
+        chat_id: int,
+        post_id: int,
+        user_ids: list[int],
+        message_id: int,
+        clean_msg_period: int = 0,
+    ) -> bool:
+        """Блокирует авторов в комментариях.
+
+        ``message_id`` — ID комментария для модерации.
+        ``clean_msg_period=0`` сохраняет комментарии, ``-1`` также удаляет их.
+        """
+        return await self._app.api.chats.block_comment_author(
+            chat_id=chat_id,
+            post_id=post_id,
+            user_ids=user_ids,
+            message_id=message_id,
+            clean_msg_period=clean_msg_period,
+        )

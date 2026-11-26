@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Use the dedicated Matrix agent account. The agent must be invited to rooms."""
+import argparse,json,sys,urllib.error,urllib.parse,urllib.request,uuid,http.client,mimetypes,os,stat
+from pathlib import Path
+SERVER=os.environ.get('MATRIX_HOMESERVER','http://127.0.0.1:8008').rstrip('/')
+SERVER_PARTS=urllib.parse.urlsplit(SERVER)
+if SERVER_PARTS.scheme not in ('http','https') or not SERVER_PARTS.hostname or SERVER_PARTS.username or SERVER_PARTS.password or SERVER_PARTS.query or SERVER_PARTS.fragment:
+ raise SystemExit('MATRIX_HOMESERVER must be an HTTP(S) URL without credentials or query')
+BASE=SERVER+'/_matrix/client/v3'
+TOKEN=Path(os.environ.get('MATRIX_TOKEN_FILE',os.path.expanduser('~/.config/matrix-agent/token')))
+OWNER_TOKEN=Path(os.environ.get('MATRIX_OWNER_TOKEN_FILE',os.path.expanduser('~/.config/matrix-agent/owner_token')))
+opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+def call(method,path,body=None):
+ token=TOKEN.read_text().strip()
+ headers={'Authorization':'Bearer '+token}
+ if body is not None:headers['Content-Type']='application/json'
+ req=urllib.request.Request(BASE+path,method=method,headers=headers,data=None if body is None else json.dumps(body,ensure_ascii=False).encode())
+ try:
+  with opener.open(req,timeout=30) as response:return json.load(response)
+ except urllib.error.HTTPError as e:
+  try:err=json.load(e); code=err.get('errcode','unknown')
+  except Exception:code='unknown'
+  raise SystemExit(f'Matrix API error: {e.code} {code}')
+MAX_FILE_SIZE=50*1024*1024
+
+def upload_file(path):
+ path=Path(path)
+ try:
+  with path.open('rb') as stream:
+   size=os.fstat(stream.fileno()).st_size
+   if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode) or not 0<size<=MAX_FILE_SIZE:
+    raise SystemExit('File must be a regular file between 1 byte and 50 MiB')
+   connection_class=http.client.HTTPSConnection if SERVER_PARTS.scheme=='https' else http.client.HTTPConnection
+   connection=connection_class(SERVER_PARTS.hostname,SERVER_PARTS.port,timeout=180)
+   try:
+    connection.putrequest('POST',SERVER_PARTS.path.rstrip('/')+'/_matrix/media/v3/upload?'+urllib.parse.urlencode({'filename':path.name}))
+    connection.putheader('Authorization','Bearer '+TOKEN.read_text().strip())
+    connection.putheader('Content-Type',mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
+    connection.putheader('Content-Length',str(size));connection.endheaders()
+    remaining=size
+    while remaining:
+     chunk=stream.read(min(65536,remaining))
+     if not chunk:raise SystemExit('File changed during upload')
+     connection.send(chunk);remaining-=len(chunk)
+    response=connection.getresponse();raw=response.read()
+    if response.status != 200:raise SystemExit(f'Matrix media upload failed: HTTP {response.status}')
+    return json.loads(raw)['content_uri']
+   finally:connection.close()
+ except OSError as exc:
+  raise SystemExit(f'Could not upload file: {type(exc).__name__}')
+
+def send_file(room,path):
+ path=Path(path)
+ try:size=path.stat().st_size
+ except OSError as exc:raise SystemExit(f'Could not read file: {type(exc).__name__}')
+ if not 0<size<=MAX_FILE_SIZE:raise SystemExit('File must be between 1 byte and 50 MiB')
+ uri=upload_file(path)
+ content={'msgtype':'m.file','body':path.name,'filename':path.name,'url':uri,
+          'info':{'size':size,'mimetype':mimetypes.guess_type(path.name)[0] or 'application/octet-stream'}}
+ event='/rooms/'+urllib.parse.quote(room,safe='')+'/send/m.room.message/'+uuid.uuid4().hex
+ try:return call('PUT',event,content)
+ except SystemExit:raise SystemExit('Upload succeeded, but the Matrix event failed; do not retry blindly')
+
+def download_file(uri,destination):
+ parsed=urllib.parse.urlsplit(uri)
+ if parsed.scheme!='mxc' or not parsed.netloc or not parsed.path.strip('/') or '/' in parsed.path.strip('/') or parsed.query or parsed.fragment:
+  raise SystemExit('Expected an mxc://server/media-id URI')
+ path='/_matrix/client/v1/media/download/'+urllib.parse.quote(parsed.netloc,safe='')+'/'+urllib.parse.quote(parsed.path.strip('/'),safe='')
+ request=urllib.request.Request(SERVER+path,headers={'Authorization':'Bearer '+TOKEN.read_text().strip()})
+ target=Path(destination);created=False
+ try:
+  with opener.open(request,timeout=180) as response:
+   fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);created=True
+   with os.fdopen(fd,'wb') as output:
+    total=0
+    while True:
+     chunk=response.read(65536)
+     if not chunk:break
+     total+=len(chunk)
+     if total>MAX_FILE_SIZE:raise ValueError('file exceeds 50 MiB')
+     output.write(chunk)
+  return {'path':str(target),'size':total}
+ except (OSError,ValueError,urllib.error.URLError) as exc:
+  if created:target.unlink(missing_ok=True)
+  raise SystemExit(f'Download failed: {type(exc).__name__}')
+
+def search(query,room_id=None,limit=20,next_batch=None):
+ if not query.strip() or len(query)>256:raise SystemExit('search query must contain 1..256 characters')
+ if not 1<=limit<=100:raise SystemExit('limit must be between 1 and 100')
+ room_filter={'limit':limit}
+ if room_id:room_filter['rooms']=[room_id]
+ body={'search_categories':{'room_events':{'search_term':query,'order_by':'recent','filter':room_filter}}}
+ path='/search'
+ if next_batch:path+='?'+urllib.parse.urlencode({'next_batch':next_batch})
+ return call('POST',path,body)
+
+def main():
+ global TOKEN
+ p=argparse.ArgumentParser(description='Matrix CLI: separate agent account by default; --owner uses your Matrix account')
+ p.add_argument('--owner',action='store_true',help='use the owner token (MATRIX_OWNER_TOKEN_FILE) with access to all owner rooms')
+ sub=p.add_subparsers(dest='command',required=True)
+ sub.add_parser('status');sub.add_parser('rooms')
+ j=sub.add_parser('join');j.add_argument('room_id')
+ h=sub.add_parser('history');h.add_argument('room_id');h.add_argument('--limit',type=int,default=20)
+ s=sub.add_parser('send');s.add_argument('room_id');s.add_argument('--text-file',required=True)
+ q=sub.add_parser('search');q.add_argument('query');q.add_argument('--room');q.add_argument('--limit',type=int,default=20);q.add_argument('--next-batch')
+ f=sub.add_parser('send-file');f.add_argument('room_id');f.add_argument('--file',required=True)
+ d=sub.add_parser('download');d.add_argument('mxc_uri');d.add_argument('--output',required=True)
+ a=p.parse_args()
+ if a.owner:TOKEN=OWNER_TOKEN
+ if a.command=='status':result=call('GET','/account/whoami')
+ elif a.command=='rooms':result=call('GET','/joined_rooms')
+ elif a.command=='join':result=call('POST','/join/'+urllib.parse.quote(a.room_id,safe=''),{})
+ elif a.command=='search':result=search(a.query,a.room,a.limit,a.next_batch)
+ elif a.command=='send-file':result=send_file(a.room_id,a.file)
+ elif a.command=='download':result=download_file(a.mxc_uri,a.output)
+ elif a.command=='history':
+  if not 1<=a.limit<=100:raise SystemExit('limit must be between 1 and 100')
+  result=call('GET','/rooms/'+urllib.parse.quote(a.room_id,safe='')+'/messages?'+urllib.parse.urlencode({'dir':'b','limit':a.limit}))
+ else:
+  text=Path(a.text_file).read_text(encoding='utf-8')
+  if not text.strip():raise SystemExit('message must not be empty')
+  path='/rooms/'+urllib.parse.quote(a.room_id,safe='')+'/send/m.room.message/'+uuid.uuid4().hex
+  result=call('PUT',path,{'msgtype':'m.text','body':text})
+ print(json.dumps(result,ensure_ascii=False))
+if __name__=='__main__':main()

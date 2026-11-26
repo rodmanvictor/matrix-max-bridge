@@ -6,6 +6,7 @@ from pymax.auth.base import AuthFlow
 from pymax.exceptions import ApiError
 from pymax.logging import get_logger
 
+from .exceptions import PasswordAttemptsExceededError
 from .models import AuthResult
 from .providers import (
     ConsolePasswordProvider,
@@ -69,9 +70,7 @@ class SmsAuthFlow(AuthFlow):
             raise RuntimeError("Phone is required for SMS authentication")
 
         logger.info("starting sms authentication")
-        logger.warning(">>> REQUEST_CODE BEGIN")
         start = await app.api.auth.request_code(phone)
-        logger.warning(">>> REQUEST_CODE END %s", start)
         logger.debug("sms token received token_set=%s", bool(start.token))
         code = await self.code_provider.get_code(phone)
         logger.debug("sms code provider returned code_set=%s", bool(code))
@@ -118,7 +117,10 @@ class SmsAuthFlow(AuthFlow):
         hint: str | None,
     ) -> str:
         logger.info("starting 2fa password authentication")
-        while True:
+        attempt = 0
+        while (
+            app.config.password_max_attempts is None or app.config.password_max_attempts > attempt
+        ):
             password = await self.password_provider.get_password(hint)
             logger.debug(
                 "2fa password provider returned password_set=%s",
@@ -126,16 +128,19 @@ class SmsAuthFlow(AuthFlow):
             )
             if not password:
                 logger.warning("2fa password is empty; retrying")
+                attempt += 1
                 continue
 
             try:
                 response = await app.api.auth.check_password(track_id, password)
             except ApiError as e:
                 logger.error("2fa password check failed: %s", e)
+                attempt += 1
                 continue
 
             if response.error:
                 logger.error("2fa password check failed error=%s", response.error)
+                attempt += 1
                 continue
 
             if response.login_token:
@@ -143,3 +148,6 @@ class SmsAuthFlow(AuthFlow):
                 return response.login_token
 
             logger.error("2fa password response did not contain login token; retrying")
+            attempt += 1
+
+        raise PasswordAttemptsExceededError

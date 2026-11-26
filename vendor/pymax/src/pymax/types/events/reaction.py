@@ -1,4 +1,6 @@
-from pydantic import Field
+from typing import Any
+
+from pydantic import model_validator
 
 from pymax.types.domain.base import CamelModel
 from pymax.types.domain.message import ReactionCounter
@@ -7,13 +9,37 @@ from pymax.types.domain.message import ReactionCounter
 class ReactionUpdateEvent(CamelModel):
     """Событие обновления реакций сообщения.
 
-    MAX может присылать ``messageId`` как JSON-число или строку, а некоторые
-    варианты уведомления не содержат counters/totalCount. Обработчик моста
-    нормализует ID через ``str(...)`` и при необходимости запрашивает текущее
-    состояние реакций отдельным точечным вызовом для конкретного сообщения.
+    :ivar message_id: ID сообщения.
+    :vartype message_id: int
+    :ivar chat_id: ID чата.
+    :vartype chat_id: int
+    :ivar counters: Счетчики реакций по типам, если Max их прислал.
+    :vartype counters: list[ReactionCounter] | None
+    :ivar total_count: Общее количество реакций.
+    :vartype total_count: int
+    :ivar your_reaction: Реакция текущего пользователя, если она есть.
+    :vartype your_reaction: str | None
     """
 
-    message_id: int | str
+    message_id: int
     chat_id: int
-    counters: list[ReactionCounter] = Field(default_factory=list)
+    counters: list[ReactionCounter] | None = None
     total_count: int = 0
+    your_reaction: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unwrap_reaction_info(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        reaction_info = value.get("reactionInfo")
+        if not isinstance(reaction_info, dict):
+            return value
+
+        data = value.copy()
+        for field in ("counters", "totalCount", "yourReaction"):
+            if field in reaction_info:
+                data[field] = reaction_info[field]
+
+        return data

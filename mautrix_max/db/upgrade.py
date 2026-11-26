@@ -132,3 +132,50 @@ async def upgrade_v9(conn: Connection) -> None:
         "CREATE INDEX message_map_sender_idx "
         "ON message_map (mx_room, sender_max_id)"
     )
+
+
+@upgrade_table.register(description="Normalize shared portal receiver keys")
+async def upgrade_v10(conn: Connection) -> None:
+    # PostgreSQL primary keys cannot contain NULL. SQLite deployments of older
+    # bridge versions may have NULL entries; migrate those without deleting rows.
+    await conn.execute("UPDATE portal SET receiver = '' WHERE receiver IS NULL")
+
+
+@upgrade_table.register(description="Create account-scoped searchable MAX archive")
+async def upgrade_v11(conn: Connection) -> None:
+    await conn.execute('''CREATE TABLE max_archive_message (
+        owner TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        timestamp_ms BIGINT NOT NULL,
+        sender_id TEXT,
+        body TEXT NOT NULL,
+        files_json TEXT NOT NULL,
+        search_text TEXT NOT NULL,
+        PRIMARY KEY (owner, chat_id, message_id)
+    )''')
+    await conn.execute('CREATE INDEX max_archive_message_time_idx ON max_archive_message (owner, timestamp_ms DESC, chat_id, message_id)')
+    await conn.execute('''CREATE TABLE max_archive_directory (
+        owner TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        remote_id TEXT NOT NULL,
+        chat_id TEXT,
+        names_json TEXT NOT NULL,
+        search_text TEXT NOT NULL,
+        observed_at BIGINT NOT NULL,
+        PRIMARY KEY (owner, kind, remote_id)
+    )''')
+    await conn.execute('CREATE INDEX max_archive_directory_owner_idx ON max_archive_directory (owner, kind)')
+
+
+@upgrade_table.register(description="Track MAX archive history cursors")
+async def upgrade_v12(conn: Connection) -> None:
+    await conn.execute('''CREATE TABLE max_archive_checkpoint (
+        owner TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        next_before_ms BIGINT,
+        pages BIGINT NOT NULL,
+        scanned BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        PRIMARY KEY (owner, chat_id)
+    )''')

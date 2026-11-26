@@ -16,8 +16,8 @@ docker inspect matrix-synapse --format '{{json .NetworkSettings.Networks}}'
 ## 2. Подготовка проекта
 
 ```bash
-git clone https://github.com/NijazKa/pymatrix-max.git
-cd pymatrix-max
+git clone https://github.com/rodmanvictor/matrix-max-bridge.git
+cd matrix-max-bridge
 cp .env.example .env
 mkdir -p data
 cp example-config.yaml data/config.yaml
@@ -87,14 +87,14 @@ mount в compose-файл Synapse:
 services:
   matrix-synapse:
     volumes:
-      - /полный/путь/pymatrix-max/data/registration.yaml:/data/pymatrix-max-registration.yaml:ro
+      - /полный/путь/matrix-max-bridge/data/registration.yaml:/data/matrix-max-bridge-registration.yaml:ro
 ```
 
 В `homeserver.yaml`:
 
 ```yaml
 app_service_config_files:
-  - /data/pymatrix-max-registration.yaml
+  - /data/matrix-max-bridge-registration.yaml
 ```
 
 Если список уже существует, добавьте новый элемент, не создавайте второй ключ
@@ -124,20 +124,30 @@ import mautrix_max
 
 print("mautrix:", mautrix.__file__)
 print("pymax:", pymax.__file__)
-print("pymatrix-max:", mautrix_max.__file__)
+print("matrix-max-bridge:", mautrix_max.__file__)
 PY
 ```
 
 ## 8. Первая авторизация
 
-Откройте чат с `@maxbot:example.org` и отправьте:
+Вход выполняется по QR-коду MAX в интерактивном терминале на сервере. Matrix ID
+должен иметь уровень `user` или `admin` в `bridge.permissions`:
 
-```text
-!max login +79991234567
+```bash
+docker compose exec -e MAX_AUTH_MXID=@you:example.org \
+  -e MAX_DATA_DIR=/opt/mautrix-max/data \
+  mautrix-max python -m mautrix_max.qr_cli
 ```
 
-Ответьте обычным сообщением на запрос кода, а затем пароля 2FA, если он включён.
-Проверить статус:
+Отсканируйте QR-код в приложении MAX и, если терминал попросит, введите пароль
+двухфакторной защиты. Не копируйте QR-код и пароль в чаты и логи. Сессия
+сохраняется в `data/sessions/`, мост подхватывает её в течение 15 секунд.
+
+Инструмент не перезаписывает существующую сессию. После `!max logout` в
+`data/sessions/` остаётся каталог с профилем устройства; перед новым входом
+перенесите его в резервную копию.
+
+Проверить статус в чате с `@maxbot:example.org`:
 
 ```text
 !max ping
@@ -154,7 +164,7 @@ docker compose up -d --force-recreate
 Перед обновлением сохраните `data/`:
 
 ```bash
-tar -czf pymatrix-max-data-$(date +%Y%m%d-%H%M%S).tar.gz data
+tar -czf matrix-max-bridge-data-$(date +%Y%m%d-%H%M%S).tar.gz data
 ```
 
 Не запускайте одновременно старый и новый контейнер с одним каталогом сессий.

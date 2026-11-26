@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""MAX search, history and native delayed messages through the local running Matrix bridge."""
+import argparse
+import datetime
+import http.client
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import time
+import urllib.parse
+import zoneinfo
+
+SOCKET=os.environ.get('MATRIX_MAX_SOCKET','/data/run/max.sock')
+class UnixHTTP(http.client.HTTPConnection):
+    def connect(self):
+        self.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+        self.sock.settimeout(170)
+        self.sock.connect(SOCKET)
+def index_all(connection,max_chats,pages,offset=0,fresh=False):
+    connection.request('GET','/index/chats?'+urllib.parse.urlencode({'limit':max_chats,'offset':offset}))
+    response=connection.getresponse();listing=json.loads(response.read())
+    if response.status != 200: raise RuntimeError('Could not list MAX chats')
+    succeeded=failed=indexed=scanned=0
+    for chat in listing['chats']:
+        connection.request('POST','/index?'+urllib.parse.urlencode({'chat':chat['id'],'pages':pages,'fresh':int(fresh)}))
+        response=connection.getresponse();data=json.loads(response.read())
+        if response.status==200:
+            succeeded+=1;indexed+=data['indexed'];scanned+=data['scanned']
+        else:failed+=1
+        time.sleep(0.2)
+    return {'chats_succeeded':succeeded,'chats_failed':failed,'indexed':indexed,'scanned':scanned,
+            'partial':True,'has_more_chats':listing.get('has_more',False),'next_offset':listing.get('next_offset')}
+
+IMAGE_SUFFIXES=('.png','.jpg','.jpeg','.webp','.gif')
+VIDEO_SUFFIXES=('.mp4','.mov','.webm','.mkv')
+def parse_local_time(value,tz):
+    """'2026-11-26 12:30' in the given IANA zone -> Unix seconds."""
+    for fmt in ('%Y-%m-%d %H:%M:%S','%Y-%m-%d %H:%M','%Y-%m-%dT%H:%M:%S','%Y-%m-%dT%H:%M'):
+        try:moment=datetime.datetime.strptime(value,fmt)
+        except ValueError:continue
+        return int(moment.replace(tzinfo=zoneinfo.ZoneInfo(tz)).timestamp())
+    raise SystemExit('Время укажите как "ГГГГ-ММ-ДД ЧЧ:ММ" или "ГГГГ-ММ-ДД ЧЧ:ММ:СС"')
+def delayed_command(args):
+    """Native MAX delayed messages: schedule, list, cancel."""
+    body=None;headers={}
+    if args.action=='send-delayed':
+        params={'chat':args.chat,'at':parse_local_time(args.at,args.tz)}
+        if args.text_file:
+            body=Path(args.text_file).read_bytes();params['kind']='text'
+        else:
+            source=Path(args.file);body=source.read_bytes();suffix=source.suffix.lower()
+            kind=args.kind if args.kind!='auto' else 'image' if suffix in IMAGE_SUFFIXES else 'video' if suffix in VIDEO_SUFFIXES else 'file'
+            params.update(kind=kind,name=source.name)
+        if not body:raise SystemExit('Пустой текст или файл')
+        if len(body)>50*1024*1024:raise SystemExit('Файл больше 50 МиБ')
+        method,route='POST','/delayed/send';headers={'Content-Type':'application/octet-stream'}
+    elif args.action=='delayed':
+        method,route,params='GET','/delayed',{'chat':args.chat}
+    else:
+        method,route,params='POST','/delayed/cancel',{'chat':args.chat,'message':args.message}
+    connection=UnixHTTP('localhost',timeout=170)
+    try:
+        connection.request(method,route+'?'+urllib.parse.urlencode(params),body=body,headers=headers)
+        response=connection.getresponse();result=json.loads(response.read())
+        for item in ([result] if 'time_to_fire_ms' in result else result.get('delayed',[])):
+            if item.get('time_to_fire_ms'):
+                item['time_to_fire_local']=datetime.datetime.fromtimestamp(item['time_to_fire_ms']/1000,zoneinfo.ZoneInfo(getattr(args,'tz','Europe/Moscow'))).strftime('%Y-%m-%d %H:%M:%S %Z')
+        print(json.dumps(result,ensure_ascii=False,indent=2))
+        if response.status!=200:sys.exit(1)
+    except (OSError,ValueError) as exc:
+        raise SystemExit('Локальный API MAX недоступен: '+type(exc).__name__)
+    finally:connection.close()
+
+def main():
+    p=argparse.ArgumentParser(description='Поиск через активную сессию моста MAX (результаты могут быть неполными)')
+    sub=p.add_subparsers(dest='action',required=True)
+    for action in ('contacts','chats'):
+        cmd=sub.add_parser(action);cmd.add_argument('query')
+    h=sub.add_parser('search');h.add_argument('query');h.add_argument('--chat',required=True,type=int);h.add_argument('--pages',type=int,choices=range(1,6),default=1);h.add_argument('--before',type=int)
+    h=sub.add_parser('history');h.add_argument('--chat',required=True,type=int);h.add_argument('--pages',type=int,choices=range(1,6),default=1);h.add_argument('--before',type=int)
+    d=sub.add_parser('download');d.add_argument('--chat',required=True,type=int);d.add_argument('--message',required=True,type=int);d.add_argument('--index',type=int,default=0);d.add_argument('--output',required=True)
+    for action in ('open-contact','open-chat'):
+        cmd=sub.add_parser(action);cmd.add_argument('id',type=int)
+    a=sub.add_parser('archive-search');a.add_argument('query');a.add_argument('--chat',type=int);a.add_argument('--limit',type=int,choices=range(1,101),default=100);a.add_argument('--offset',type=int,default=0)
+    for action in ('archive-contacts','archive-chats'):
+        a=sub.add_parser(action);a.add_argument('query')
+    sub.add_parser('archive-status')
+    sub.add_parser('refresh')
+    a=sub.add_parser('index-all');a.add_argument('--max-chats',type=int,choices=range(1,101),default=50);a.add_argument('--pages',type=int,choices=range(1,6),default=1);a.add_argument('--offset',type=int,default=0);a.add_argument('--fresh',action='store_true')
+    a=sub.add_parser('index');a.add_argument('--chat',required=True,type=int);a.add_argument('--pages',type=int,choices=range(1,6),default=1);a.add_argument('--before',type=int);a.add_argument('--fresh',action='store_true')
+    d=sub.add_parser('send-delayed',help='Отложенное сообщение средствами самого MAX');d.add_argument('--chat',required=True,type=int);d.add_argument('--at',required=True,help='"ГГГГ-ММ-ДД ЧЧ:ММ[:СС]" в зоне --tz');d.add_argument('--tz',default='Europe/Moscow')
+    g=d.add_mutually_exclusive_group(required=True);g.add_argument('--text-file');g.add_argument('--file');d.add_argument('--kind',choices=('auto','image','video','file'),default='auto')
+    d=sub.add_parser('delayed',help='Список отложенных сообщений чата');d.add_argument('--chat',required=True,type=int);d.add_argument('--tz',default='Europe/Moscow')
+    d=sub.add_parser('cancel-delayed',help='Отменить отложенное сообщение');d.add_argument('--chat',required=True,type=int);d.add_argument('--message',required=True,type=int)
+    args=p.parse_args()
+    if args.action in ('send-delayed','delayed','cancel-delayed'):return delayed_command(args)
+    route=args.action
+    opening=route in ('open-contact','open-chat')
+    params={'id':args.id} if opening else {'q':getattr(args,'query','')}
+    if route == 'archive-search':
+        route='archive/messages';params={'q':args.query,'limit':args.limit,'offset':args.offset}
+        if args.chat is not None:params['chat']=args.chat
+    elif route in ('archive-contacts','archive-chats'):
+        route='archive/'+route.removeprefix('archive-');params={'q':args.query}
+    elif route == 'archive-status':route='archive/status';params={}
+    elif route == 'refresh':route='directory/refresh';params={}
+    elif route == 'index':
+        params={'chat':args.chat,'pages':args.pages}
+        if args.before is not None:params['before']=args.before
+        if args.fresh:params['fresh']='1'
+    if route=='download':
+        route='attachment';params={'chat':args.chat,'message':args.message,'index':args.index}
+    if route in ('search','history'):
+        if route=='history':params['read']='1'
+        route='history';params.update(chat=args.chat,pages=args.pages)
+        if args.before is not None:params['before']=args.before
+    connection=UnixHTTP('localhost',timeout=170)
+    try:
+        if route == 'index-all':
+            result=index_all(connection,args.max_chats,args.pages,args.offset,args.fresh)
+            print(json.dumps(result,ensure_ascii=False,indent=2))
+            if result['chats_failed']:sys.exit(1)
+            return
+        connection.request('POST' if opening or route in ('index','directory/refresh') else 'GET','/'+route+'?'+urllib.parse.urlencode(params))
+        response=connection.getresponse()
+        if route == 'attachment' and response.status == 200:
+            target=Path(args.output);created=False
+            try:
+                fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);created=True
+                total=0
+                with os.fdopen(fd,'wb') as out:
+                    while True:
+                        chunk=response.read(65536)
+                        if not chunk: break
+                        total+=len(chunk)
+                        if total>50*1024*1024:raise ValueError('file exceeds 50 MiB')
+                        out.write(chunk)
+                result={'path':str(target),'size':total}
+            except (OSError,ValueError):
+                if created:target.unlink(missing_ok=True)
+                raise
+        else:
+            result=json.loads(response.read())
+        if opening and response.status == 200 and result.get('room_id'):
+            join=subprocess.run(['matrix-agent','--owner','join',result['room_id']],capture_output=True,text=True)
+            result['joined']=(join.returncode==0)
+        print(json.dumps(result,ensure_ascii=False,indent=2))
+        if response.status != 200:sys.exit(1)
+    except (OSError,ValueError,RuntimeError) as exc:
+        raise SystemExit('Локальный поиск MAX недоступен: '+type(exc).__name__)
+    finally:connection.close()
+if __name__=='__main__':main()

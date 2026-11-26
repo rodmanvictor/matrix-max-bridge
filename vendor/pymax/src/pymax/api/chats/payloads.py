@@ -6,7 +6,7 @@ from pymax.api.models import CamelModel
 from pymax.types.domain.attachments.enums import AttachmentType
 from pymax.types.domain.enums import ChatType
 
-from .enums import ChatMemberOperation, ChatOption, ControlEvent
+from .enums import ChatMemberOperation, ChatOption, ControlEvent, PermType
 
 
 class CreateGroupAttach(CamelModel):
@@ -74,8 +74,9 @@ class ChangeGroupSettingsPayload(CamelModel):
 
 class ChangeGroupProfilePayload(CamelModel):
     chat_id: int
-    theme: str | None
+    theme: str | None = None
     description: str | None = None
+    photo_token: str | None = None
 
 
 class JoinChatPayload(CamelModel):
@@ -93,6 +94,13 @@ class ReworkInviteLinkPayload(CamelModel):
 
 class GetChatInfoPayload(CamelModel):
     chat_ids: list[int]
+
+
+class GetChatMembersPayload(CamelModel):
+    type: str = "MEMBER"  # TODO: ENUMM!!!
+    chat_id: int
+    marker: int
+    count: int = 50
 
 
 class LeaveChatPayload(CamelModel):
@@ -121,3 +129,30 @@ class DeleteChatPayload(CamelModel):
     chat_id: int
     last_event_time: int
     for_all: bool = True
+
+
+class AddAdminPayload(CamelModel):
+    chat_id: int
+    user_ids: list[int]
+    type: PermType = PermType.ADMIN
+    operation: str = "add"
+    permissions: int
+
+
+class ChannelCommentsOptions(CamelModel):
+    comments: bool = Field(serialization_alias=ChatOption.COMMENTS.value)
+
+
+class SetChannelCommentsPayload(CamelModel):
+    chat_id: int
+    options: ChannelCommentsOptions
+
+
+class BlockCommentAuthorPayload(CamelModel):
+    chat_id: int
+    post_id: int
+    user_ids: list[int]
+    message_id: int
+    type: Literal["COMMENTS_BLACKLIST"] = "COMMENTS_BLACKLIST"
+    operation: ChatMemberOperation = ChatMemberOperation.ADD
+    clean_msg_period: int = 0

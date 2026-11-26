@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from .base import BaseFile
+from .base import BaseFile, TimedMediaFile
 
 
 class Video(BaseFile):
@@ -72,3 +72,53 @@ class Video(BaseFile):
             Async generator с байтами.
         """
         return super().iter_chunks(size)
+
+
+class VideoNote(TimedMediaFile):
+    """Круглое видеосообщение для отправки.
+
+    Принимает те же источники, что и ``Video``. Длительность задается в
+    миллисекундах. Если она не передана, требуется extra ``video`` для
+    автоматического определения длительности.
+
+    Args:
+        raw: Байты видеосообщения.
+        url: URL видеосообщения.
+        path: Локальный путь к видеосообщению.
+        name: Имя файла. Обязательно для ``raw``.
+        duration: Длительность в миллисекундах. ``None`` включает
+            автоматическое определение через extra ``video``.
+
+    Raises:
+        RuntimeError: При определении длительности без extra ``video``.
+    """
+
+    def __init__(
+        self,
+        raw: bytes | None = None,
+        *,
+        url: str | None = None,
+        path: str | None = None,
+        name: str | None = None,
+        duration: int | None = None,
+    ) -> None:
+        self.duration = duration
+        self.name: str = name or ""
+        if not self.name and path:
+            self.name = Path(path).name
+        elif not self.name and url:
+            self.name = Path(url).name
+
+        if not self.name:
+            raise ValueError("Either name, url or path must be provided.")
+
+        super().__init__(raw, url=url, path=path, name=self.name, duration=self.duration)
+
+    async def read(self) -> bytes:
+        return await super().read()
+
+    def iter_chunks(self, size: int) -> AsyncGenerator[bytes, None]:
+        return super().iter_chunks(size)
+
+    async def size(self) -> int:
+        return await super().size()

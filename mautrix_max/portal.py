@@ -1369,6 +1369,7 @@ class Portal(BasePortal):
                 reply_to=reply_to_max,
             )
             await self._store_outgoing_mapping(event_id, sent_message)
+            await sender.archive_message(sent_message, chat_id_override=int(self.chat_id))
             return
 
         if not getattr(msgtype, "is_media", False):
@@ -1422,3 +1423,4 @@ class Portal(BasePortal):
             reply_to=reply_to_max,
         )
         await self._store_outgoing_mapping(event_id, sent_message)
+        await sender.archive_message(sent_message, chat_id_override=int(self.chat_id))

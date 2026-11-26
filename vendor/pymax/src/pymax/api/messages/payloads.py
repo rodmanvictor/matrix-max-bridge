@@ -8,6 +8,7 @@ from pymax.api.uploads.payloads import (
     AttachPhotoPayload,
     VideoAttachPayload,
 )
+from pymax.types.domain import Poll
 
 from .enums import ItemType, ReadAction
 
@@ -17,14 +18,22 @@ class GetMessagesPayload(CamelModel):
     message_ids: list[int]
 
 
+class GetCommentsPayload(GetMessagesPayload):
+    post_id: int
+
+
 class EditMessagePayload(CamelModel):
     chat_id: int
     message_id: int
-    text: str
+    text: str | None = None
     elements: list[Any]
-    attachments: list[AttachPhotoPayload | VideoAttachPayload | AttachFilePayload] = Field(
+    attachments: list[AttachPhotoPayload | VideoAttachPayload | AttachFilePayload | Poll] = Field(
         default_factory=list
     )
+
+
+class EditCommentPayload(EditMessagePayload):
+    post_id: int
 
 
 class ReplyLink(CamelModel):
@@ -32,18 +41,28 @@ class ReplyLink(CamelModel):
     message_id: int
 
 
+class DelayedAttributes(CamelModel):
+    time_to_fire: int
+    notify_sender: bool
+
+
 class SendMessagePayloadMessage(CamelModel):
-    text: str
+    text: str | None = None
     cid: int
     elements: list[Any]
-    attaches: list[AttachPhotoPayload | VideoAttachPayload | AttachFilePayload]
+    attaches: list[AttachPhotoPayload | VideoAttachPayload | AttachFilePayload | Poll]
     link: ReplyLink | None = None
+    delayed_attributes: DelayedAttributes | None = None
 
 
 class SendMessagePayload(CamelModel):
     chat_id: int
     message: SendMessagePayloadMessage
     notify: bool = False
+
+
+class SendCommentPayload(SendMessagePayload):
+    post_id: int
 
 
 class ForwardLink(CamelModel):
@@ -79,6 +98,10 @@ class ChatHistoryPayload(CamelModel):
     interactive: bool = False
 
 
+class CommentsHistoryPayload(ChatHistoryPayload):
+    post_id: int
+
+
 class DeleteMessagePayload(CamelModel):
     chat_id: int
     message_ids: list[int]
@@ -110,25 +133,59 @@ class ReactionInfoPayload(CamelModel):
 
 class AddReactionPayload(CamelModel):
     chat_id: int
-    # TCP protocol expects a JSON number here, not a quoted string.
     message_id: int
     reaction: ReactionInfoPayload
 
 
 class GetReactionsPayload(CamelModel):
     chat_id: int
-    # TCP protocol expects numeric message IDs.
     message_ids: list[int]
 
 
 class RemoveReactionPayload(CamelModel):
     chat_id: int
-    # TCP protocol expects a JSON number here, not a quoted string.
     message_id: int
 
 
 class ReadMessagesPayload(CamelModel):
     type: ReadAction
     chat_id: int
-    message_id: str | int  # Сокет просит int а вс str
+    message_id: int
     mark: int
+
+
+class VotePollPayload(CamelModel):
+    chat_id: int
+    message_id: int
+    poll_id: int
+    answers_ids: list[int]
+
+
+class DeleteCommentPayload(DeleteMessagePayload):
+    post_id: int
+
+
+class AddCommentReactionPayload(AddReactionPayload):
+    post_id: int
+
+
+class RemoveCommentReactionPayload(RemoveReactionPayload):
+    post_id: int
+
+
+class SubscribeCommentsPayload(CamelModel):
+    chat_id: int
+    post_id: int
+    subscribe: bool = True
+
+
+class GetCommentsInfoPayload(CamelModel):
+    chat_id: int
+    post_ids: list[int]
+
+
+class DeleteUserCommentsPayload(CamelModel):
+    chat_id: int
+    post_id: int
+    user_id: int
+    message_id: int

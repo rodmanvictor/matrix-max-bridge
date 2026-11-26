@@ -33,8 +33,8 @@ class VideoAttachment(CamelModel):
     :vartype video_id: int
     :ivar duration: Длительность видео.
     :vartype duration: int | None
-    :ivar preview_data: Данные превью.
-    :vartype preview_data: bytes
+    :ivar preview_data: Данные превью, если Max их прислал.
+    :vartype preview_data: bytes | None
     :ivar type: Тип вложения.
     :vartype type: Literal[AttachmentType.VIDEO]
     :ivar thumbnail: URL миниатюры.
@@ -49,7 +49,7 @@ class VideoAttachment(CamelModel):
     width: int
     video_id: int
     duration: int | None = None
-    preview_data: bytes
+    preview_data: bytes | None = None
     type: Literal[AttachmentType.VIDEO] = Field(alias="_type")
     thumbnail: str
     token: str
@@ -59,21 +59,17 @@ class VideoAttachment(CamelModel):
 class VideoRequest(CamelModel):
     """Данные для просмотра видео-вложения.
 
-    MAX может вернуть URL обычной строкой или динамической парой
-    ``путь -> список CDN-хостов``. Служебное поле ``FAILOVER_HOSTS`` также
-    содержит список хостов и не является путём к видео.
-
     :ivar external: Признак или URL внешнего источника видео.
     :vartype external: str | bool | None
     :ivar cache: Использовать ли кеш.
     :vartype cache: bool
-    :ivar url: URL видео.
-    :vartype url: str
+    :ivar url: Прямой URL видео или ``None`` для внешнего видео.
+    :vartype url: str | None
     """
 
     external: str | bool | None = Field(default=None, alias="EXTERNAL")
-    cache: bool
-    url: str
+    cache: bool = False  # TODO: idk maybe | None = None better
+    url: str | None = None
 
     _RESERVED_KEYS: ClassVar[frozenset[str]] = frozenset({
         "EXTERNAL",
@@ -151,49 +147,49 @@ class VideoRequest(CamelModel):
 
     @model_validator(mode="before")
     @classmethod
-    def unwrap_dynamic_url(cls, value: Any) -> Any:
-        """Нормализовать URL и не принимать ``FAILOVER_HOSTS`` за путь."""
-        if not isinstance(value, dict):
+    def select_video_url(cls, value: Any) -> Any:
+        """Выбирает прямой URL с максимальным доступным MP4-качеством.
+
+        :param value: Значение, переданное в валидатор модели.
+        :type value: Any
+        :returns: Данные запроса видео или исходное значение.
+        :rtype: Any
+        """
+        if not isinstance(value, dict) or "url" in value:
             return value
 
+        mp4_urls: list[tuple[int, str]] = []
+        for key, url in value.items():
+            if not isinstance(key, str) or not isinstance(url, str):
+                continue
+
+            normalized_key = key.upper()
+            if not normalized_key.startswith("MP4_"):
+                continue
+
+            try:
+                quality = int(normalized_key.removeprefix("MP4_"))
+            except ValueError:
+                continue
+
+            if quality > 0:
+                mp4_urls.append((quality, url))
+
+        if mp4_urls:
+            _, url = max(mp4_urls, key=lambda item: item[0])
+            return {**value, "url": url}
+
         failover_hosts = value.get("FAILOVER_HOSTS")
-
-        # Обычный формат: url содержит абсолютный URL или относительный путь.
-        if "url" in value:
-            direct = cls._first_string(value.get("url"))
-            if direct is not None:
-                url = cls._url_from_value(direct)
-                if url is None and cls._looks_like_path(direct):
-                    url = cls._build_url(direct, failover_hosts)
-                if url is not None:
-                    return {**value, "url": url}
-
-        # Формат MAX: ключ — путь к видео, значение — список CDN-хостов.
-        # Сначала рассматриваем только ключи, явно похожие на путь/URL.
         for key, raw_value in value.items():
             key_text = str(key).strip()
-            if key_text.upper() in cls._RESERVED_KEYS:
+            if key_text.upper() in cls._RESERVED_KEYS or not cls._looks_like_path(key_text):
                 continue
-            if not cls._looks_like_path(key_text):
-                continue
-
-            if cls._is_absolute_url(key_text):
-                return {**value, "url": key_text}
-            if key_text.startswith("//"):
-                return {**value, "url": "https:" + key_text}
-
-            url = cls._build_url(key_text, raw_value)
-            if url is None:
-                url = cls._build_url(key_text, failover_hosts)
+            url = cls._build_url(key_text, raw_value) or cls._build_url(key_text, failover_hosts)
             if url is not None:
                 return {**value, "url": url}
 
-        # Редкий вариант: абсолютный URL лежит в значении неизвестного поля.
-        for key, raw_value in value.items():
-            if str(key).strip().upper() in cls._RESERVED_KEYS:
-                continue
-            url = cls._url_from_value(raw_value)
-            if url is not None:
-                return {**value, "url": url}
+        legacy_url = value.get("dynamicUrl", value.get("dynamic_url"))
+        if isinstance(legacy_url, str):
+            return {**value, "url": legacy_url}
 
         return value
