@@ -4,8 +4,8 @@
 
 <p align="center">
   <a href="https://github.com/rodmanvictor/matrix-max-bridge/actions/workflows/ci.yml"><img src="https://github.com/rodmanvictor/matrix-max-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F-0.14.0-8f6bff" alt="Версия 0.14.0"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/%D0%BB%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-0a9a74" alt="Лицензия MIT"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.14.0-8f6bff" alt="Версия 0.14.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0a9a74" alt="Лицензия MIT"></a>
   <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&logoColor=white" alt="Python 3.10, 3.11, 3.12">
   <a href="docs/installation-docker.md"><img src="https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose"></a>
 </p>
